@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>仓库园区立体透视图 - 线框模式</title>l
+  <style>
+    :root {
+      --panel-bg: rgba(255, 255, 255, 0.95);
+      --panel-fg: #222;
+      --panel-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #f0f0f0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    }
+
+    #loginOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #f7fafc, #eef2f7);
+    }
+
+    #loginCard {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+      padding: 24px 24px 20px;
+      width: 320px;
+    }
+
+    #loginCard h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      color: #111;
+    }
+
+    .form-row {
+      margin: 10px 0;
+    }
+
+    .form-row label {
+      display: block;
+      font-size: 13px;
+      color: #444;
+      margin-bottom: 6px;
+    }
+
+    .form-row input {
+      width: 100%;
+      height: 34px;
+      padding: 6px 10px;
+      border: 1px solid #d5d7db;
+      border-radius: 6px;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .form-actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .error {
+      color: #b91c1c;
+      font-size: 12px;
+      min-height: 16px;
+    }
+
+    #viewport {
+      width: 90vw;
+      height: 90vh;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #f0f0f0;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #infoPanel {
+      position: fixed;
+      display: none;
+      z-index: 10;
+      left: 0;
+      top: 0;
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      padding: 8px 12px;
+      border-radius: 6px;
+      box-shadow: var(--panel-shadow);
+      font-size: 14px;
+      pointer-events: none;
+      min-width: 120px;
+      line-height: 1.5;
+    }
+
+    #detailPanel {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 10;
+      display: none;
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      padding: 10px 14px;
+      border-radius: 8px;
+      box-shadow: var(--panel-shadow);
+      min-width: 240px;
+      font-size: 14px;
+    }
+
+    #compass {
+      position: fixed;
+      right: 16px;
+      top: 16px;
+      width: 100px;
+      height: 100px;
+      z-index: 11;
+      background: var(--panel-bg);
+      border-radius: 50%;
+      box-shadow: var(--panel-shadow);
+      display: grid;
+      place-items: center;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    #compass svg {
+      width: 84px;
+      height: 84px;
+    }
+
+    #compass .label {
+      font-size: 12px;
+      font-weight: 600;
+      fill: #333;
+    }
+
+    .whLabel {
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      color: #111;
+      font-size: 12px;
+      line-height: 1;
+      padding: 4px 6px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+      pointer-events: none;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    #whPanel {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 10;
+      display: none;
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      padding: 10px 14px;
+      border-radius: 8px;
+      box-shadow: var(--panel-shadow);
+      min-width: 240px;
+      font-size: 14px;
+    }
+
+    #actionBar {
+      position: fixed;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%) translateY(12px);
+      z-index: 12;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform .18s ease, opacity .18s ease;
+    }
+
+    #actionBar.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      pointer-events: auto;
+    }
+
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      box-shadow: var(--panel-shadow);
+      border-radius: 999px;
+      padding: 8px;
+      backdrop-filter: saturate(160%) blur(6px);
+    }
+
+    .action-bar .btn {
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 14px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+  </style>
+</head>
+<body>
+<div id="loginOverlay">
+  <div id="loginCard">
+    <h2>登录</h2>
+    <form id="loginForm">
+      <div class="form-row">
+        <label for="username">用户名</label>
+        <input id="username" name="username" autocomplete="username" placeholder="请输入用户名"/>
+      </div>
+      <div class="form-row">
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password"
+               placeholder="请输入密码"/>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn">登录</button>
+        <span id="loginError" class="error"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="viewport"></div>
+<div id="infoPanel"></div>
+<div id="detailPanel"></div>
+<div id="compass" aria-label="指南针">
+  <svg viewBox="0 0 100 100">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6"
+              orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#d00"/>
+      </marker>
+    </defs>
+    <circle cx="50" cy="50" r="38" fill="none" stroke="#888" stroke-width="2"/>
+    <line x1="50" y1="50" x2="50" y2="12" stroke="#d00" stroke-width="3" marker-end="url(#arrow)"/>
+    <line x1="50" y1="10" x2="50" y2="20" stroke="#666" stroke-width="2"/>
+    <line x1="50" y1="80" x2="50" y2="90" stroke="#666" stroke-width="2"/>
+    <line x1="10" y1="50" x2="20" y2="50" stroke="#666" stroke-width="2"/>
+    <line x1="80" y1="50" x2="90" y2="50" stroke="#666" stroke-width="2"/>
+    <text x="50" y="8" text-anchor="middle" class="label">N</text>
+    <text x="92" y="54" text-anchor="middle" class="label">E</text>
+    <text x="50" y="98" text-anchor="middle" class="label">S</text>
+    <text x="8" y="54" text-anchor="middle" class="label">W</text>
+  </svg>
+</div>
+<div id="whPanel"></div>
+
+<div id="actionBar" aria-live="polite">
+  <div class="action-bar">
+    <button id="btnLfs" class="btn">查看LFS订单</button>
+    <button id="btnTms" class="btn">查看相关TMS运输订单</button>
+    <button id="btnFee" class="btn">查看堆垛仓储费用</button>
+  </div>
+</div>
+
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+</script>
+
+<script type="module">
+  import * as THREE from 'three';
+  import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+  import {CSS2DRenderer, CSS2DObject} from 'three/addons/renderers/CSS2DRenderer.js';
+
+  // 登录逻辑
+  const loginOverlay = document.getElementById('loginOverlay');
+  const loginForm = document.getElementById('loginForm');
+  const loginError = document.getElementById('loginError');
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  let currentUser = null;
+
+  loginForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const u = usernameInput.value.trim();
+    const p = passwordInput.value;
+    if (u === 'JF' && p === '123456') {
+      currentUser = u;
+      loginOverlay.style.display = 'none';
+    } else {
+      loginError.textContent = '用户名或密码不正确';
+      return;
+    }
+  });
+
+  // 配置获取
+  async function fetchYardConfig() {
+    return {
+      yard: {length: 500, width: 300, roadWidth: 20},
+      warehouse: {
+        count: 1,
+        length: 40,
+        width: 50,
+        height: 15,
+        roofHeight: 5,
+        gap: 15
+      }
+    };
+  }
+
+  async function fetchWarehouseStackConfig(warehouseIndex) {
+    return {
+      stackSize: {length: 10, width: 10, height: 8},
+      spacing: 5,
+      margin: 5
+    };
+  }
+
+  // Three.js 基础设置
+  const container = document.getElementById('viewport');
+  const infoPanel = document.getElementById('infoPanel');
+  const detailPanel = document.getElementById('detailPanel');
+  const compass = document.getElementById('compass');
+  const whPanel = document.getElementById('whPanel');
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf0f0f0);
+  scene.fog = new THREE.Fog(0xf0f0f0, 600, 2500);
+
+  const camera = new THREE.PerspectiveCamera(65, container.clientWidth / container.clientHeight, 0.1, 5000);
+  camera.position.set(600, 600, 600);
+  camera.lookAt(0, 0, 0);
+
+  const renderer = new THREE.WebGLRenderer({antialias: true});
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  container.appendChild(renderer.domElement);
+
+  const labelRenderer = new CSS2DRenderer();
+  labelRenderer.setSize(container.clientWidth, container.clientHeight);
+  labelRenderer.domElement.style.position = 'absolute';
+  labelRenderer.domElement.style.top = '0';
+  labelRenderer.domElement.style.left = '0';
+  labelRenderer.domElement.style.pointerEvents = 'none';
+  labelRenderer.domElement.style.zIndex = '10';
+  container.appendChild(labelRenderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = false;
+  const polarAngle = Math.PI / 4;
+  controls.minPolarAngle = polarAngle;
+  controls.maxPolarAngle = polarAngle;
+  controls.minDistance = 100;
+  controls.maxDistance = 2000;
+  controls.target.set(0, 0, 0);
+
+  // 光照系统
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xd0d0d0, 0.8);
+  scene.add(hemi);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(200, 300, 200);
+  dirLight.castShadow = true;
+  dirLight.shadow.camera.left = -300;
+  dirLight.shadow.camera.right = 300;
+  dirLight.shadow.camera.top = 300;
+  dirLight.shadow.camera.bottom = -300;
+  dirLight.shadow.mapSize.width = 2048;
+  dirLight.shadow.mapSize.height = 2048;
+  scene.add(dirLight);
+
+  const ambLight = new THREE.AmbientLight(0xffffff, 0.3);
+  scene.add(ambLight);
+
+  // 线框创建
+  function createWireframe(geometry, color = 0x333333) {
+    const edges = new THREE.EdgesGeometry(geometry);
+    const mat = new THREE.LineBasicMaterial({color});
+    return new THREE.LineSegments(edges, mat);
+  }
+
+  // 随机工具
+  const random = {
+    pick: (arr) => arr[Math.floor(Math.random() * arr.length)],
+    float: (min, max) => Math.random() * (max - min) + min,
+    dateBetween(start, end) {
+      const t = start.getTime() + Math.random() * (end.getTime() - start.getTime());
+      return new Date(t);
+    },
+    dateWithinDays(days) {
+      const now = new Date();
+      const past = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      return this.dateBetween(past, now);
+    },
+    fmtDate(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    },
+    subset(arr) {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      const count = Math.max(1, Math.floor(Math.random() * copy.length));
+      return copy.slice(0, count);
+    },
+    phone() {
+      const starts = ['3', '5', '6', '7', '8', '9'];
+      let s = '1' + this.pick(starts);
+      for (let i = 0; i < 9; i++) s += Math.floor(Math.random() * 10);
+      return s;
+    }
+  };
+
+  // 颜色配置
+  const lineColors = {
+    wall: 0x555555,
+    roof: 0x8B4513,
+    stack: 0x6b6b6b,
+    hover: 0x1e90ff,
+    selected: 0xff3333,
+    ownerJF: 0x22aa22,
+    fence: 0x2f855a,
+    tree: 0x2e7d32
+  };
+
+  const interactives = [];
+  let hovered = null;
+  let selected = null;
+
+  const actionBar = document.getElementById('actionBar');
+  const btnLfs = document.getElementById('btnLfs');
+  const btnTms = document.getElementById('btnTms');
+  const btnFee = document.getElementById('btnFee');
+
+  const isOwnedByCurrent = (obj) => !!currentUser && obj?.userData?.owner === currentUser;
+
+  function updateCompass() {
+    const az = controls.getAzimuthalAngle();
+    const deg = -THREE.MathUtils.radToDeg(az);
+    compass.style.transform = `rotate(${deg}deg)`;
+  }
+
+  function fitCameraToYard(yardLength, yardWidth, maxHeight, fillRatio = 1.0) {
+    const size = new THREE.Vector3(yardLength, maxHeight, yardWidth);
+    const radius = size.length() / 2;
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+    const distV = radius / Math.tan(vFov / 2);
+    const distH = radius / Math.tan(hFov / 2);
+    const distance = Math.max(distV, distH) * fillRatio;
+
+    const az = controls.getAzimuthalAngle();
+    const phi = controls.getPolarAngle();
+    const target = new THREE.Vector3(0, Math.max(0, maxHeight * 0.5), 0);
+    controls.target.copy(target);
+    camera.position.set(
+      target.x + distance * Math.sin(phi) * Math.sin(az),
+      target.y + distance * Math.cos(phi),
+      target.z + distance * Math.sin(phi) * Math.cos(az)
+    );
+    camera.updateProjectionMatrix();
+
+    controls.minDistance = Math.max(10, distance * 0.35);
+    controls.maxDistance = distance * 3.0;
+    controls.update();
+  }
+
+  function buildYardGrid(length, width) {
+    const size = Math.max(length, width);
+    const divisions = size / 10;
+    const grid = new THREE.GridHelper(size, divisions, 0xaaaaaa, 0xcccccc);
+    grid.scale.z = width / length;
+    scene.add(grid);
+
+    const halfL = length / 2, halfW = width / 2;
+    const borderPts = [
+      [-halfL, 0, -halfW], [halfL, 0, -halfW],
+      [halfL, 0, halfW], [-halfL, 0, halfW],
+      [-halfL, 0, -halfW]
+    ].map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const geom = new THREE.BufferGeometry().setFromPoints(borderPts);
+    const border = new THREE.Line(geom, new THREE.LineBasicMaterial({color: 0x888888}));
+    scene.add(border);
+  }
+
+  function buildMainRoad(roadWidth, length) {
+    const halfL = length / 2;
+    const halfW = roadWidth / 2;
+    const sidewalk = 3;
+    const laneEdge = halfW - sidewalk;
+
+    const y = 0.02;
+    const mkLine = (pts, material) => {
+      const g = new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(p[0], y, p[1])));
+      const line = new THREE.Line(g, material);
+      return line;
+    };
+
+    const baseMat = new THREE.LineBasicMaterial({color: 0x444444});
+    const dashedMat = new THREE.LineDashedMaterial({color: 0x888888, dashSize: 10, gapSize: 6});
+
+    scene.add(mkLine([[-halfL, -halfW], [halfL, -halfW]], baseMat.clone()));
+    scene.add(mkLine([[-halfL, halfW], [halfL, halfW]], baseMat.clone()));
+    scene.add(mkLine([[-halfL, -laneEdge], [halfL, -laneEdge]], baseMat.clone()));
+    scene.add(mkLine([[-halfL, laneEdge], [halfL, laneEdge]], baseMat.clone()));
+
+    const gCenter = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-halfL, y, 0), new THREE.Vector3(halfL, y, 0)
+    ]);
+    const centerLine = new THREE.Line(gCenter, dashedMat);
+    centerLine.computeLineDistances();
+    scene.add(centerLine);
+  }
+
+  function buildSidewalkTrees(roadWidth, length, spacing = 10) {
+    const halfL = length / 2;
+    const halfW = roadWidth / 2;
+    const sidewalk = 3;
+    const zOnSidewalk = halfW - sidewalk / 2;
+
+    for (let x = -halfL; x <= halfL + 1e-6; x += spacing) {
+      addTree(x, zOnSidewalk);
+      addTree(x, -zOnSidewalk);
+    }
+
+    function addTree(x, z) {
+      const group = new THREE.Group();
+      const trunkH = 6;
+      const canopyH = 2;
+
+      const trunkGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, trunkH, 0)
+      ]);
+      const trunk = new THREE.Line(trunkGeom, new THREE.LineBasicMaterial({color: lineColors.tree}));
+      group.add(trunk);
+
+      const coneGeo = new THREE.ConeGeometry(1.4, canopyH, 10);
+      const edges = new THREE.EdgesGeometry(coneGeo);
+      const canopy = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color: lineColors.tree}));
+      canopy.position.y = trunkH + canopyH / 2;
+      group.add(canopy);
+
+      group.position.set(x, 0, z);
+      scene.add(group);
+    }
+  }
+
+  function buildWarehouse({length, width, height, roofHeight}, centerX, centerZ, index) {
+    const group = new THREE.Group();
+    group.position.set(centerX, 0, centerZ);
+
+    const wall = createWireframe(new THREE.BoxGeometry(length, height, width), lineColors.wall);
+    wall.position.set(0, height / 2, 0);
+    wall.userData = {type: '仓库', 序号: index + 1, 长: length, 宽: width, 高: height};
+    group.add(wall);
+
+    const hx = length / 2, hz = width / 2, yTop = height, yRidge = height + roofHeight;
+    const roofColor = lineColors.roof;
+    const roofLines = [];
+    roofLines.push([[-hx, yTop, -hz], [0, yRidge, -hz], [hx, yTop, -hz], [-hx, yTop, -hz]]);
+    roofLines.push([[-hx, yTop, hz], [0, yRidge, hz], [hx, yTop, hz], [-hx, yTop, hz]]);
+    roofLines.push([[-hx, yRidge, 0], [hx, yRidge, 0]]);
+    roofLines.push([[-hx, yTop, -hz], [-hx, yTop, hz]]);
+    roofLines.push([[hx, yTop, -hz], [hx, yTop, hz]]);
+
+    for (const pts of roofLines) {
+      const g = new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+      const line = new THREE.Line(g, new THREE.LineBasicMaterial({color: roofColor}));
+      group.add(line);
+    }
+
+    const idChar = String.fromCharCode(65 + (index % 26));
+    const area = length * width;
+    const services = random.subset(['熏蒸', '干燥', '复核堆芯温度']);
+    const temperature = random.float(12, 28).toFixed(1);
+    const phone = random.phone();
+    group.userData.whInfo = {id: `#${idChar}`, area, temperature, services, phone};
+
+    const labelEl = document.createElement('div');
+    labelEl.className = 'whLabel';
+    labelEl.textContent = group.userData.whInfo.id;
+    const labelObj = new CSS2DObject(labelEl);
+    labelObj.position.set(0, height + roofHeight + 6, 0);
+    group.add(labelObj);
+
+    scene.add(group);
+    return group;
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target && (e.target.closest && e.target.closest('#actionBar'))) return;
+    whPanel.style.display = 'none';
+    clearSelection();
+  });
+
+  let stackIdSeq = 1;
+
+  function populateStacks(warehouseGroup, wConf, stackConf, index) {
+    const {length, width, height} = wConf;
+    const {length: sx, width: sz, height: sy} = stackConf.stackSize;
+    const spacing = stackConf.spacing;
+    const margin = stackConf.margin;
+
+    const center = new THREE.Vector3();
+    warehouseGroup.getWorldPosition(center);
+    const cx = center.x, cz = center.z;
+
+    const halfL = length / 2, halfW = width / 2;
+    const startX = cx - halfL + margin + sx / 2;
+    const endX = cx + halfL - margin - sx / 2;
+    const startZ = cz - halfW + margin + sz / 2;
+    const endZ = cz + halfW - margin - sz / 2;
+
+    const stepX = sx + spacing;
+    const stepZ = sz + spacing;
+
+    for (let x = startX; x <= endX + 0.001; x += stepX) {
+      for (let z = startZ; z <= endZ + 0.001; z += stepZ) {
+        const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
+        stack.position.set(x, sy / 2, z);
+        stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
+        const vol = (sx * sy * sz).toFixed(0);
+        const id = stackIdSeq++;
+        const isJF = Math.random() < 0.2;
+        const whInfo = warehouseGroup.userData?.whInfo || null;
+
+        const 委托客户 = random.pick(['建发', '国贸']);
+        const 货权方 = random.pick(['广东粮油', '中国粮食']);
+        const 货类 = random.pick(['袋装玉米', '袋装小麦', '袋装鱼粉']);
+        const 当前质量 = random.float(5, 50).toFixed(1);
+        const 入库 = random.dateWithinDays(180);
+        const 出库 = random.dateBetween(入库, new Date());
+
+        stack.userData = {
+          type: '堆垛', id,
+          owner: isJF ? 'JF' : undefined,
+          仓库序号: index + 1,
+          体积_m3: vol,
+          尺寸_m: `${sx}×${sy}×${sz}`,
+          委托客户,
+          货权方,
+          货类,
+          当前质量_t: 当前质量,
+          最后入库时间: random.fmtDate(入库),
+          最后出库时间: random.fmtDate(出库),
+          whInfo
+        };
+        setStackColor(stack, isJF ? lineColors.ownerJF : lineColors.stack);
+
+        scene.add(stack);
+        interactives.push(stack);
+      }
+    }
+  }
+
+  // 交互逻辑
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Line.threshold = 2;
+  const mouse = new THREE.Vector2();
+
+  function showHoverInfo(obj, clientX, clientY) {
+    if (!isOwnedByCurrent(obj)) {
+      hideHoverInfo();
+      return;
+    }
+    const v = obj.userData?.体积_m3;
+    infoPanel.innerHTML = `<div><b>堆垛 #${obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
+    infoPanel.style.display = 'block';
+    infoPanel.style.left = (clientX + 14) + 'px';
+    infoPanel.style.top = (clientY + 14) + 'px';
+  }
+
+  function hideHoverInfo() {
+    infoPanel.style.display = 'none';
+  }
+
+  function setStackColor(obj, color) {
+    if (obj && obj.material) obj.material.color.set(color);
+  }
+
+  function getStackBaseColor(obj) {
+    return obj?.userData?.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
+  }
+
+  function clearHover() {
+    if (hovered && hovered !== selected) {
+      setStackColor(hovered, getStackBaseColor(hovered));
+    }
+    hovered = null;
+    hideHoverInfo();
+  }
+
+  function layoutInfoPanels() {
+    const gap = 12;
+    const detailShown = detailPanel.style.display !== 'none';
+    const whShown = whPanel.style.display !== 'none';
+    detailPanel.style.bottom = '16px';
+    whPanel.style.bottom = '16px';
+    if (detailShown && whShown) {
+      const h = detailPanel.offsetHeight || detailPanel.getBoundingClientRect().height || 0;
+      whPanel.style.bottom = (16 + h + gap) + 'px';
+    }
+  }
+
+  function updateActionBar() {
+    if (selected && isOwnedByCurrent(selected)) {
+      actionBar.classList.add('show');
+    } else {
+      actionBar.classList.remove('show');
+    }
+  }
+
+  function updateDetailPanel() {
+    if (!selected) {
+      detailPanel.style.display = 'none';
+      updateActionBar();
+      return;
+    }
+    const wp = new THREE.Vector3();
+    selected.getWorldPosition(wp);
+    const ud = selected.userData || {};
+    detailPanel.innerHTML = `
+        <div style="font-weight:600;margin-bottom:6px;">堆垛详情 #${ud.id}</div>
+        <div>最大堆叠体积: ${ud.体积_m3} m³</div>
+        <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
+        <div>所在仓库: #${ud.仓库序号}</div>
+        <div>委托客户: ${ud.委托客户 || '-'}</div>
+        <div>货权方: ${ud.货权方 || '-'}</div>
+        <div>货类: ${ud.货类 || '-'}</div>
+        <div>当前质量: ${ud.当前质量_t || '-'} 吨</div>
+        <div>最后入库时间: ${ud.最后入库时间 || '-'}</div>
+        <div>最后出库时间: ${ud.最后出库时间 || '-'}</div>
+        <div>位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
+      `;
+    detailPanel.style.display = 'block';
+    layoutInfoPanels();
+    updateActionBar();
+  }
+
+  function handlePointerMove(e) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(interactives, false);
+    const ownedHit = hits.find(h => isOwnedByCurrent(h.object));
+    if (ownedHit) {
+      const obj = ownedHit.object;
+      if (hovered !== obj) {
+        if (hovered && hovered !== selected) setStackColor(hovered, getStackBaseColor(hovered));
+        hovered = obj;
+      }
+      if (hovered !== selected) setStackColor(hovered, lineColors.hover);
+      showHoverInfo(obj, e.clientX, e.clientY);
+    } else {
+      clearHover();
+    }
+  }
+
+  function handleClick(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!hovered || !isOwnedByCurrent(hovered)) return;
+    if (selected === hovered) {
+      clearSelection();
+      return;
+    }
+    if (selected) setStackColor(selected, getStackBaseColor(selected));
+    selected = hovered;
+    setStackColor(selected, lineColors.selected);
+    updateDetailPanel();
+    const info = selected.userData?.whInfo;
+    if (info) {
+      whPanel.innerHTML = `
+          <div style="font-weight:600;margin-bottom:6px;">仓库 ${info.id}</div>
+          <div>面积: ${info.area} m²</div>
+          <div>仓内温度: ${info.temperature} ℃</div>
+          <div>增值作业: ${info.services.join('、')}</div>
+          <div>当日值勤: ${info.phone}</div>
+        `;
+      whPanel.style.display = 'block';
+      layoutInfoPanels();
+    } else {
+      whPanel.style.display = 'none';
+    }
+    updateActionBar();
+  }
+
+  renderer.domElement.addEventListener('mousemove', handlePointerMove);
+  renderer.domElement.addEventListener('mouseleave', clearHover);
+  renderer.domElement.addEventListener('click', handleClick);
+  renderer.domElement.addEventListener('click', (ev) => {
+    if (!hovered) {
+      clearSelection();
+    }
+  });
+
+  function clearSelection() {
+    if (!selected) {
+      updateActionBar();
+      return;
+    }
+    setStackColor(selected, getStackBaseColor(selected));
+    selected = null;
+    updateDetailPanel();
+    updateActionBar();
+    whPanel.style.display = 'none';
+  }
+
+  btnLfs.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!selected) return;
+    const id = selected.userData?.id;
+    alert(`查看LFS订单：堆垛 #${id}`);
+  });
+  btnTms.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!selected) return;
+    const id = selected.userData?.id;
+    alert(`查看相关TMS运输订单：堆垛 #${id}`);
+  });
+  btnFee.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!selected) return;
+    const id = selected.userData?.id;
+    alert(`查看堆垛仓储费用：堆垛 #${id}`);
+  });
+
+  function onResize() {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    labelRenderer.setSize(w, h);
+    layoutInfoPanels();
+  }
+
+  window.addEventListener('resize', onResize);
+
+  controls.addEventListener('change', () => {
+    updateCompass();
+  });
+
+  // 筒仓构建函数
+  const siloColors = {line: 0x666666};
+
+  function buildSiloWireframe(radius, height, radialSegments = 24) {
+    const cyl = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 1, false);
+    const edges = new THREE.EdgesGeometry(cyl);
+    const mat = new THREE.LineBasicMaterial({color: siloColors.line});
+    const mesh = new THREE.LineSegments(edges, mat);
+    mesh.position.y = height / 2;
+    return mesh;
+  }
+
+  function buildSiloMesh(radius, height, radialSegments = 32) {
+    const geo = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 8, false);
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xD8D8D0,
+      roughness: 0.9,
+      metalness: 0.05,
+      flatShading: false
+    });
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = height / 2;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  function buildSiloRoof(radius, height = 3) {
+    const geo = new THREE.ConeGeometry(radius * 1.05, height, 24);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xA0A0A0,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    return mesh;
+  }
+
+  function buildSiloLadder(radius, height) {
+    const points = [];
+    const turns = height / 15;
+    const segments = Math.ceil(turns * 32);
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const angle = t * turns * Math.PI * 2;
+      const y = t * height;
+      const x = Math.cos(angle) * (radius + 0.3);
+      const z = Math.sin(angle) * (radius + 0.3);
+      points.push(new THREE.Vector3(x, y, z));
+    }
+
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: 0x666666, linewidth: 2 });
+    return new THREE.Line(geo, mat);
+  }
+
+  function buildConnectingBridge(x1, z1, x2, z2, height) {
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const len = Math.sqrt(dx * dx + dz * dz);
+    const angle = Math.atan2(dz, dx);
+
+    const geo = new THREE.CylinderGeometry(0.4, 0.4, len, 8);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x808080,
+      roughness: 0.6,
+      metalness: 0.4
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.z = Math.PI / 2;
+    mesh.position.set((x1 + x2) / 2, height, (z1 + z2) / 2);
+    mesh.rotation.y = angle;
+    return mesh;
+  }
+
+  function placeSilo(x, z, radius, height, addDetails = true) {
+    const group = new THREE.Group();
+
+    const shell = buildSiloMesh(radius, height);
+    const outline = buildSiloWireframe(radius, height);
+    group.add(shell);
+    group.add(outline);
+
+    if (addDetails) {
+      const roof = buildSiloRoof(radius, 3);
+      roof.position.y = height + 1.5;
+      group.add(roof);
+
+      const ladder = buildSiloLadder(radius, height);
+      group.add(ladder);
+
+      const ventGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8);
+      const ventMat = new THREE.MeshStandardMaterial({ color: 0x666666 });
+      const vent = new THREE.Mesh(ventGeo, ventMat);
+      vent.position.y = height + 3.75;
+      group.add(vent);
+    }
+
+    group.position.set(x, 0, z);
+    scene.add(group);
+    return group;
+  }
+
+  function addSiloGroup(centerX, centerZ, D, spacingIntra, height) {
+    const r = D / 2;
+    const step = D + spacingIntra;
+    const offsets = [-1.5, -0.5, 0.5, 1.5];
+    const silos = [];
+
+    for (const k of offsets) {
+      const silo = placeSilo(centerX + k * step, centerZ, r, height, true);
+      silos.push(silo);
+    }
+
+    const bridgeHeight = height * 0.65;
+    for (let i = 0; i < silos.length - 1; i++) {
+      const pos1 = silos[i].position;
+      const pos2 = silos[i + 1].position;
+      const bridge = buildConnectingBridge(pos1.x, pos1.z, pos2.x, pos2.z, bridgeHeight);
+      scene.add(bridge);
+    }
+
+    const platformGeo = new THREE.PlaneGeometry(step * 4, D * 0.8);
+    const platformMat = new THREE.MeshStandardMaterial({
+      color: 0xC0C0C0,
+      roughness: 0.85,
+      side: THREE.DoubleSide
+    });
+    const platform = new THREE.Mesh(platformGeo, platformMat);
+    platform.rotation.x = -Math.PI / 2;
+    platform.position.set(centerX, 0.05, centerZ + D * 0.6);
+    platform.receiveShadow = true;
+    scene.add(platform);
+  }
+
+  function layoutSilosAtEastOfWarehouses(warehouses, options = {}) {
+    const densityTPerM3 = options.densityTPerM3 ?? 0.75;
+    const capacityTons = options.capacityTons ?? 5000;
+    const height = options.height ?? 35;
+    const spacingIntra = options.spacingIntra ?? 5;
+    const spacingInter = options.spacingInter ?? 10;
+    const rowGroupCounts = options.rowGroupCounts ?? [1, 1, 2, 4];
+    const roadSouthMargin = options.roadSouthMargin ?? 5;
+
+    const volumeM3 = capacityTons / densityTPerM3;
+    const radius = options.radius ?? Math.sqrt(volumeM3 / (Math.PI * height));
+    const D = radius * 2;
+    const groupWidth = 4 * D + 3 * spacingIntra;
+    const groupDepth = D;
+
+    const box = new THREE.Box3();
+    for (const g of warehouses) box.expandByObject(g);
+    const xEast = box.max.x;
+    const corridor = 20;
+
+    let zStart = -(roadSouthMargin + groupDepth / 2);
+
+    for (let row = 0; row < rowGroupCounts.length; row++) {
+      const groupsInRow = rowGroupCounts[row];
+      let xStart = xEast + corridor + (groupWidth / 2);
+
+      for (let gi = 0; gi < groupsInRow; gi++) {
+        const cx = xStart + gi * (groupWidth + spacingInter);
+        addSiloGroup(cx, zStart, D, spacingIntra, height);
+      }
+      zStart -= (groupDepth + spacingInter);
+    }
+
+    return {D, height, radius, count: rowGroupCounts.reduce((a, b) => a + b, 0) * 4};
+  }
+
+  async function init() {
+    const cfg = await fetchYardConfig();
+    const {length: yardL, width: yardW, roadWidth} = cfg.yard;
+    buildYardGrid(yardL, yardW);
+    buildMainRoad(roadWidth, yardL);
+    buildSidewalkTrees(roadWidth, yardL);
+
+    const {length: wL, width: wW, height: wH, roofHeight: rH, gap} = cfg.warehouse;
+    const cols = 1;
+    const rows = 1;
+    const totalRowSpan = cols * wL + (cols - 1) * gap;
+    const leftStart = -totalRowSpan / 2 + wL / 2;
+
+    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5);
+    const rowZs = [zRowOffset];
+
+    const warehouses = [];
+    for (let r = 0; r < rows; r++) {
+      const cz = rowZs[r];
+      for (let c = 0; c < cols; c++) {
+        const cx = leftStart + c * (wL + gap);
+        const wh = buildWarehouse({length: wL, width: wW, height: wH, roofHeight: rH}, cx, cz, r * cols + c);
+        warehouses.push(wh);
+        const stkConf = await fetchWarehouseStackConfig(r * cols + c);
+        populateStacks(wh, {length: wL, width: wW, height: wH}, stkConf, r * cols + c);
+      }
+    }
+
+    layoutSilosAtEastOfWarehouses(warehouses, {
+      radius: 4.5,
+      height: 35,
+      spacingIntra: 0.5,
+      spacingInter: 1.5,
+      rowGroupCounts: [2, 2, 2, 1, 1],
+      roadSouthMargin: 20
+    });
+
+    fitCameraToYard(yardL, yardW, wH + rH, 1.0);
+    updateCompass();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
+  }
+
+  init();
+  animate();
+</script>
+</body>
+</html>
