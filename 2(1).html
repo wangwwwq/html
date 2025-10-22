@@ -849,24 +849,23 @@
     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(interactives, true);
-    let ownedObj = null;
+    let target = null;
     for (const hit of hits) {
       const candidate = resolveInteractiveTarget(hit.object);
       if (!candidate) continue;
-      if (!isOwnedByCurrent(candidate)) continue;
-      ownedObj = candidate;
+      target = candidate;
       break;
     }
-    if (ownedObj) {
-      if (hovered !== ownedObj) {
+    if (target && isOwnedByCurrent(target)) {
+      if (hovered !== target) {
         if (hovered && hovered !== selected) setStackColor(hovered, getStackBaseColor(hovered));
-        hovered = ownedObj;
+        hovered = target;
       }
       if (hovered !== selected) {
         const hoverColor = hovered.userData?.type === '筒仓' ? getSiloHoverColor(hovered) : lineColors.hover;
         setStackColor(hovered, hoverColor);
       }
-      showHoverInfo(ownedObj, e.clientX, e.clientY);
+      showHoverInfo(target, e.clientX, e.clientY);
     } else {
       clearHover();
     }
