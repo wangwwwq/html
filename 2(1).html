@@ -324,14 +324,14 @@
   // 配置获取
   async function fetchYardConfig() {
     return {
-      yard: {length: 500, width: 300, roadWidth: 20},
+      yard: {length: 300, width: 290, roadWidth: 20}, // 将length从350减少到300，缩小西方向50米；width保持290米
       warehouse: {
         count: 1,
         length: 40,
         width: 50,
         height: 15,
         roofHeight: 5,
-        gap: 15
+        gap: 15,
       }
     };
   }
@@ -1036,7 +1036,7 @@
     const {length: wL, width: wW, gap} = warehouseConfig;
     const cols = 1;
     const totalRowSpan = cols * wL + (cols - 1) * gap;
-    const originalLeftStart = -totalRowSpan / 2 + wL / 2; // 仓库的原始位置
+    const originalLeftStart = -totalRowSpan / 122 + wL / 2 - 100; // 仓库的原始位置
     const originalXEast = originalLeftStart + wL / 2; // 原始仓库东侧边界
     const xEast = originalXEast;
     const corridor = 20;
@@ -1049,7 +1049,7 @@
 
       for (let gi = 0; gi < groupsInRow; gi++) {
         const cx = xStart + gi * (groupWidth + spacingInter);
-        addSiloGroup(cx, zStart, D, spacingIntra, height);
+        addSiloGroup(cx, zStart, D, spacingIntra, height)
       }
       zStart -= (groupDepth + spacingInter);
     }
@@ -1068,7 +1068,7 @@
     const cols = 1;
     const rows = 1;
     const totalRowSpan = cols * wL + (cols - 1) * gap;
-    const leftStart = -totalRowSpan / 2 + wL / 2 + 160; // 将仓库#A向右移动200米
+    const leftStart = -totalRowSpan / 2 + wL / 2 + 90; // 将仓库#A向右移动米
 
     const zRowOffset = -(roadWidth / 2 + wW / 2 + 5);
     const rowZs = [zRowOffset];
@@ -1090,8 +1090,8 @@
       height: 35,
       spacingIntra: 0.5,
       spacingInter: 1.5,
-      rowGroupCounts: [2, 2, 2, 1, 1],
-      roadSouthMargin: 20
+      rowGroupCounts: [2, 2, 2, 2, 1, 1], // 增加一排筒仓以利用扩展后的北方空间
+      roadSouthMargin: 15 // 减少南侧边距，更好地利用空间
     });
 
     fitCameraToYard(yardL, yardW, wH + rH, 1.0);
