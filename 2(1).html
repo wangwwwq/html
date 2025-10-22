@@ -314,7 +314,7 @@
       currentUser = u;
       loginOverlay.style.display = 'none';
     } else {
-        currentUser = u;
+        currentUser = 'JF';
         loginOverlay.style.display = 'none';
       // loginError.textContent = '用户名或密码不正确';
       // return;
@@ -1017,7 +1017,7 @@
     scene.add(platform);
   }
 
-  function layoutSilosAtEastOfWarehouses(warehouses, options = {}) {
+  function layoutSilosAtEastOfWarehouses(warehouses, warehouseConfig, options = {}) {
     const densityTPerM3 = options.densityTPerM3 ?? 0.75;
     const capacityTons = options.capacityTons ?? 5000;
     const height = options.height ?? 35;
@@ -1032,9 +1032,13 @@
     const groupWidth = 4 * D + 3 * spacingIntra;
     const groupDepth = D;
 
-    const box = new THREE.Box3();
-    for (const g of warehouses) box.expandByObject(g);
-    const xEast = box.max.x;
+    // 计算筒仓位置时使用仓库的原始位置，不受仓库移动影响
+    const {length: wL, width: wW, gap} = warehouseConfig;
+    const cols = 1;
+    const totalRowSpan = cols * wL + (cols - 1) * gap;
+    const originalLeftStart = -totalRowSpan / 2 + wL / 2; // 仓库的原始位置
+    const originalXEast = originalLeftStart + wL / 2; // 原始仓库东侧边界
+    const xEast = originalXEast;
     const corridor = 20;
 
     let zStart = -(roadSouthMargin + groupDepth / 2);
@@ -1064,7 +1068,7 @@
     const cols = 1;
     const rows = 1;
     const totalRowSpan = cols * wL + (cols - 1) * gap;
-    const leftStart = -totalRowSpan / 2 + wL / 2;
+    const leftStart = -totalRowSpan / 2 + wL / 2 + 160; // 将仓库#A向右移动200米
 
     const zRowOffset = -(roadWidth / 2 + wW / 2 + 5);
     const rowZs = [zRowOffset];
@@ -1081,7 +1085,7 @@
       }
     }
 
-    layoutSilosAtEastOfWarehouses(warehouses, {
+    layoutSilosAtEastOfWarehouses(warehouses, {length: wL, width: wW, gap}, {
       radius: 4.5,
       height: 35,
       spacingIntra: 0.5,
