@@ -457,10 +457,20 @@
     selected: 0xff3333,
     ownerJF: 0x22aa22,
     fence: 0x2f855a,
-    tree: 0x2e7d32
+    tree: 0x2e7d32,
+    silo: 0x888888,
+    siloOwnerJF: 0x33bb33,
+    siloHover: 0x2eb8ff,
+    siloSelected: 0xff4444
   };
 
   const interactives = [];
+  const interactiveSet = new Set();
+  function registerInteractive(obj) {
+    if (!obj) return;
+    interactives.push(obj);
+    interactiveSet.add(obj);
+  }
   let hovered = null;
   let selected = null;
 
@@ -686,7 +696,7 @@
         setStackColor(stack, isJF ? lineColors.ownerJF : lineColors.stack);
 
         scene.add(stack);
-        interactives.push(stack);
+        registerInteractive(stack);
       }
     }
   }
@@ -695,14 +705,30 @@
   const raycaster = new THREE.Raycaster();
   raycaster.params.Line.threshold = 2;
   const mouse = new THREE.Vector2();
+  function resolveInteractiveTarget(object) {
+    let current = object;
+    while (current) {
+      if (interactiveSet.has(current)) return current;
+      current = current.parent;
+    }
+    return null;
+  }
 
   function showHoverInfo(obj, clientX, clientY) {
     if (!isOwnedByCurrent(obj)) {
       hideHoverInfo();
       return;
     }
-    const v = obj.userData?.体积_m3;
-    infoPanel.innerHTML = `<div><b>堆垛 #${obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
+    
+    if (obj.userData?.type === '筒仓') {
+      const cap = obj.userData?.最大容量_t;
+      const current = obj.userData?.当前储量_t;
+      infoPanel.innerHTML = `<div><b>筒仓 #${obj.userData?.id}</b></div><div>容量: ${cap} 吨</div><div>当前: ${current} 吨</div>`;
+    } else {
+      const v = obj.userData?.体积_m3;
+      infoPanel.innerHTML = `<div><b>堆垛 #${obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
+    }
+    
     infoPanel.style.display = 'block';
     infoPanel.style.left = (clientX + 14) + 'px';
     infoPanel.style.top = (clientY + 14) + 'px';
@@ -713,11 +739,34 @@
   }
 
   function setStackColor(obj, color) {
-    if (obj && obj.material) obj.material.color.set(color);
+    if (!obj) return;
+    
+    if (obj.userData?.type === '筒仓') {
+      // 为筒仓设置颜色 - 更新线框材质
+      obj.children.forEach(child => {
+        if (child.material && child.material.type === 'LineBasicMaterial') {
+          child.material.color.set(color);
+        }
+      });
+    } else if (obj.material) {
+      // 为堆垛设置颜色
+      obj.material.color.set(color);
+    }
   }
 
   function getStackBaseColor(obj) {
+    if (obj?.userData?.type === '筒仓') {
+      return obj?.userData?.owner === 'JF' ? lineColors.siloOwnerJF : lineColors.silo;
+    }
     return obj?.userData?.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
+  }
+
+  function getSiloHoverColor(obj) {
+    return obj?.userData?.owner === 'JF' ? lineColors.siloHover : lineColors.siloHover;
+  }
+
+  function getSiloSelectedColor(obj) {
+    return obj?.userData?.owner === 'JF' ? lineColors.siloSelected : lineColors.siloSelected;
   }
 
   function clearHover() {
@@ -757,7 +806,24 @@
     const wp = new THREE.Vector3();
     selected.getWorldPosition(wp);
     const ud = selected.userData || {};
-    detailPanel.innerHTML = `
+    
+    if (ud.type === '筒仓') {
+      detailPanel.innerHTML = `
+        <div style="font-weight:600;margin-bottom:6px;">筒仓详情 #${ud.id}</div>
+        <div>半径: ${ud.半径_m} 米</div>
+        <div>高度: ${ud.高度_m} 米</div>
+        <div>容积: ${ud.容积_m3} m³</div>
+        <div>最大容量: ${ud.最大容量_t} 吨</div>
+        <div>货类: ${ud.货类 || '-'}</div>
+        <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
+        <div>入仓时间: ${ud.入仓时间 || '-'}</div>
+        <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
+        <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
+        <div>状态: ${ud.状态 || '-'}</div>
+        <div>位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
+      `;
+    } else {
+      detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">堆垛详情 #${ud.id}</div>
         <div>最大堆叠体积: ${ud.体积_m3} m³</div>
         <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
@@ -770,6 +836,8 @@
         <div>最后出库时间: ${ud.最后出库时间 || '-'}</div>
         <div>位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
+    }
+    
     detailPanel.style.display = 'block';
     layoutInfoPanels();
     updateActionBar();
@@ -780,16 +848,25 @@
     mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(interactives, false);
-    const ownedHit = hits.find(h => isOwnedByCurrent(h.object));
-    if (ownedHit) {
-      const obj = ownedHit.object;
-      if (hovered !== obj) {
+    const hits = raycaster.intersectObjects(interactives, true);
+    let ownedObj = null;
+    for (const hit of hits) {
+      const candidate = resolveInteractiveTarget(hit.object);
+      if (!candidate) continue;
+      if (!isOwnedByCurrent(candidate)) continue;
+      ownedObj = candidate;
+      break;
+    }
+    if (ownedObj) {
+      if (hovered !== ownedObj) {
         if (hovered && hovered !== selected) setStackColor(hovered, getStackBaseColor(hovered));
-        hovered = obj;
+        hovered = ownedObj;
       }
-      if (hovered !== selected) setStackColor(hovered, lineColors.hover);
-      showHoverInfo(obj, e.clientX, e.clientY);
+      if (hovered !== selected) {
+        const hoverColor = hovered.userData?.type === '筒仓' ? getSiloHoverColor(hovered) : lineColors.hover;
+        setStackColor(hovered, hoverColor);
+      }
+      showHoverInfo(ownedObj, e.clientX, e.clientY);
     } else {
       clearHover();
     }
@@ -804,7 +881,8 @@
     }
     if (selected) setStackColor(selected, getStackBaseColor(selected));
     selected = hovered;
-    setStackColor(selected, lineColors.selected);
+    const selectedColor = selected.userData?.type === '筒仓' ? getSiloSelectedColor(selected) : lineColors.selected;
+    setStackColor(selected, selectedColor);
     updateDetailPanel();
     const info = selected.userData?.whInfo;
     if (info) {
@@ -848,19 +926,23 @@
     e.stopPropagation();
     if (!selected) return;
     const id = selected.userData?.id;
-    alert(`查看LFS订单：堆垛 #${id}`);
+    const type = selected.userData?.type || '堆垛';
+    alert(`查看LFS订单：${type} #${id}`);
   });
   btnTms.addEventListener('click', (e) => {
     e.stopPropagation();
     if (!selected) return;
     const id = selected.userData?.id;
-    alert(`查看相关TMS运输订单：堆垛 #${id}`);
+    const type = selected.userData?.type || '堆垛';
+    alert(`查看相关TMS运输订单：${type} #${id}`);
   });
   btnFee.addEventListener('click', (e) => {
     e.stopPropagation();
     if (!selected) return;
     const id = selected.userData?.id;
-    alert(`查看堆垛仓储费用：堆垛 #${id}`);
+    const type = selected.userData?.type || '堆垛';
+    const feeType = type === '筒仓' ? '筒仓仓储费用' : '堆垛仓储费用';
+    alert(`查看${feeType}：${type} #${id}`);
   });
 
   function onResize() {
@@ -880,12 +962,10 @@
   });
 
   // 筒仓构建函数
-  const siloColors = {line: 0x666666};
-
   function buildSiloWireframe(radius, height, radialSegments = 24) {
     const cyl = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 1, false);
     const edges = new THREE.EdgesGeometry(cyl);
-    const mat = new THREE.LineBasicMaterial({color: siloColors.line});
+    const mat = new THREE.LineBasicMaterial({color: lineColors.silo});
     const mesh = new THREE.LineSegments(edges, mat);
     mesh.position.y = height / 2;
     return mesh;
@@ -957,6 +1037,8 @@
     return mesh;
   }
 
+  let siloIdSeq = 1;
+
   function placeSilo(x, z, radius, height, addDetails = true) {
     const group = new THREE.Group();
 
@@ -980,8 +1062,43 @@
       group.add(vent);
     }
 
+    // 添加筒仓用户数据
+    const volume = Math.PI * radius * radius * height;
+    const capacity = (volume * 0.75).toFixed(1); // 假设密度0.75吨/立方米
+    const isJF = Math.random() < 0.3;
+    const id = siloIdSeq++;
+    
+    const 货类 = random.pick(['小麦', '玉米', '大豆', '稻谷']);
+    const 当前储量 = random.float(capacity * 0.3, capacity * 0.95).toFixed(1);
+    const 入仓时间 = random.dateWithinDays(90);
+    const 温度 = random.float(15, 25).toFixed(1);
+    const 湿度 = random.float(12, 16).toFixed(1);
+    
+    group.userData = {
+      type: '筒仓',
+      id: id,
+      owner: isJF ? 'JF' : undefined,
+      半径_m: radius.toFixed(1),
+      高度_m: height.toFixed(1),
+      容积_m3: volume.toFixed(0),
+      最大容量_t: capacity,
+      货类: 货类,
+      当前储量_t: 当前储量,
+      入仓时间: random.fmtDate(入仓时间),
+      仓内温度_c: 温度,
+      仓内湿度_percent: 湿度,
+      状态: random.pick(['正常运营', '维护中', '空仓待用'])
+    };
+
     group.position.set(x, 0, z);
     scene.add(group);
+    
+    // 设置初始颜色
+    setStackColor(group, getStackBaseColor(group));
+    
+    // 添加到交互对象数组
+    registerInteractive(group);
+    
     return group;
   }
 
