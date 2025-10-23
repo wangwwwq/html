@@ -338,7 +338,7 @@
 
   async function fetchWarehouseStackConfig(warehouseIndex) {
     return {
-      stackSize: {length: 10, width: 10, height: 8},
+      stackSize: {length: 25, width: 25, height: 12},
       spacing: 5,
       margin: 5
     };
@@ -646,59 +646,45 @@
   function populateStacks(warehouseGroup, wConf, stackConf, index) {
     const {length, width, height} = wConf;
     const {length: sx, width: sz, height: sy} = stackConf.stackSize;
-    const spacing = stackConf.spacing;
-    const margin = stackConf.margin;
 
     const center = new THREE.Vector3();
     warehouseGroup.getWorldPosition(center);
     const cx = center.x, cz = center.z;
 
-    const halfL = length / 2, halfW = width / 2;
-    const startX = cx - halfL + margin + sx / 2;
-    const endX = cx + halfL - margin - sx / 2;
-    const startZ = cz - halfW + margin + sz / 2;
-    const endZ = cz + halfW - margin - sz / 2;
+    // 只生成一个堆垛在仓库中心
+    const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
+    stack.position.set(cx, sy / 2, cz);
+    stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
+    const vol = (sx * sy * sz).toFixed(0);
+    const id = stackIdSeq++;
+    const isJF = Math.random() < 0.2;
+    const whInfo = warehouseGroup.userData?.whInfo || null;
 
-    const stepX = sx + spacing;
-    const stepZ = sz + spacing;
+    const 委托客户 = random.pick(['建发', '国贸']);
+    const 货权方 = random.pick(['广东粮油', '中国粮食']);
+    const 货类 = random.pick(['袋装玉米', '袋装小麦', '袋装鱼粉']);
+    const 当前质量 = random.float(5, 50).toFixed(1);
+    const 入库 = random.dateWithinDays(180);
+    const 出库 = random.dateBetween(入库, new Date());
 
-    for (let x = startX; x <= endX + 0.001; x += stepX) {
-      for (let z = startZ; z <= endZ + 0.001; z += stepZ) {
-        const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
-        stack.position.set(x, sy / 2, z);
-        stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
-        const vol = (sx * sy * sz).toFixed(0);
-        const id = stackIdSeq++;
-        const isJF = Math.random() < 0.2;
-        const whInfo = warehouseGroup.userData?.whInfo || null;
+    stack.userData = {
+      type: '堆垛', id,
+      owner: isJF ? 'JF' : undefined,
+      仓库序号: index + 1,
+      体积_m3: vol,
+      尺寸_m: `${sx}×${sy}×${sz}`,
+      委托客户,
+      货权方,
+      货类,
+      当前质量_t: 当前质量,
+      最后入库时间: random.fmtDate(入库),
+      最后出库时间: random.fmtDate(出库),
+      whInfo
+    };
+    setStackColor(stack, isJF ? lineColors.ownerJF : lineColors.stack);
 
-        const 委托客户 = random.pick(['建发', '国贸']);
-        const 货权方 = random.pick(['广东粮油', '中国粮食']);
-        const 货类 = random.pick(['袋装玉米', '袋装小麦', '袋装鱼粉']);
-        const 当前质量 = random.float(5, 50).toFixed(1);
-        const 入库 = random.dateWithinDays(180);
-        const 出库 = random.dateBetween(入库, new Date());
-
-        stack.userData = {
-          type: '堆垛', id,
-          owner: isJF ? 'JF' : undefined,
-          仓库序号: index + 1,
-          体积_m3: vol,
-          尺寸_m: `${sx}×${sy}×${sz}`,
-          委托客户,
-          货权方,
-          货类,
-          当前质量_t: 当前质量,
-          最后入库时间: random.fmtDate(入库),
-          最后出库时间: random.fmtDate(出库),
-          whInfo
-        };
-        setStackColor(stack, isJF ? lineColors.ownerJF : lineColors.stack);
-
-        scene.add(stack);
-        registerInteractive(stack);
-      }
-    }
+    scene.add(stack);
+    registerInteractive(stack);
   }
 
   // 交互逻辑
