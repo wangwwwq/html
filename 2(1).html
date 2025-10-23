@@ -227,6 +227,32 @@
       font-size: 14px;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
     }
+
+    #coordsPanel {
+      position: fixed;
+      left: 16px;
+      bottom: 16px;
+      z-index: 10;
+      display: none;
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      padding: 10px 14px;
+      border-radius: 8px;
+      box-shadow: var(--panel-shadow);
+      min-width: 200px;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+    }
+
+    #coordsPanel .coord-title {
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #2563eb;
+    }
+
+    #coordsPanel .coord-value {
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
@@ -254,6 +280,10 @@
 <div id="viewport"></div>
 <div id="infoPanel"></div>
 <div id="detailPanel"></div>
+<div id="coordsPanel">
+  <div class="coord-title">点击坐标</div>
+  <div class="coord-value" id="coordsValue">等待点击...</div>
+</div>
 <div id="compass" aria-label="指南针">
   <svg viewBox="0 0 100 100">
     <defs>
@@ -350,6 +380,8 @@
   const detailPanel = document.getElementById('detailPanel');
   const compass = document.getElementById('compass');
   const whPanel = document.getElementById('whPanel');
+  const coordsPanel = document.getElementById('coordsPanel');
+  const coordsValue = document.getElementById('coordsValue');
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
@@ -461,7 +493,11 @@
     silo: 0x888888,
     siloOwnerJF: 0x33bb33,
     siloHover: 0x2eb8ff,
-    siloSelected: 0xff4444
+    siloSelected: 0xff4444,
+    starSilo: 0xf2b134,
+    starSiloOwnerJF: 0xffc75f,
+    starSiloHover: 0xffe59f,
+    starSiloSelected: 0xff7f50,
   };
 
   const interactives = [];
@@ -706,10 +742,12 @@
       return;
     }
     
-    if (obj.userData?.type === '筒仓') {
+    const type = obj.userData?.type;
+    if (type === '筒仓' || type === '星仓') {
       const cap = obj.userData?.最大容量_t;
       const current = obj.userData?.当前储量_t;
-      infoPanel.innerHTML = `<div><b>筒仓 #${obj.userData?.id}</b></div><div>容量: ${cap} 吨</div><div>当前: ${current} 吨</div>`;
+      const label = type === '星仓' ? '星仓' : '筒仓';
+      infoPanel.innerHTML = `<div><b>${label} #${obj.userData?.id}</b></div><div>容量: ${cap} 吨</div><div>当前: ${current} 吨</div>`;
     } else {
       const v = obj.userData?.体积_m3;
       infoPanel.innerHTML = `<div><b>堆垛 #${obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
@@ -724,14 +762,19 @@
     infoPanel.style.display = 'none';
   }
 
-  function setStackColor(obj, color) {
+function setStackColor(obj, color) {
     if (!obj) return;
     
-    if (obj.userData?.type === '筒仓') {
-      // 为筒仓设置颜色 - 更新线框材质
+    const type = obj.userData?.type;
+    if (type === '筒仓' || type === '星仓') {
+      // 为筒仓/星仓设置颜色 - 同步主体与线框材质
       obj.children.forEach(child => {
-        if (child.material && child.material.type === 'LineBasicMaterial') {
-          child.material.color.set(color);
+        if (child.material) {
+          if (child.material.type === 'LineBasicMaterial') {
+            child.material.color.set(color);
+          } else if (child.material.type === 'MeshStandardMaterial') {
+            child.material.color.set(color);
+          }
         }
       });
     } else if (obj.material) {
@@ -740,19 +783,31 @@
     }
   }
 
-  function getStackBaseColor(obj) {
-    if (obj?.userData?.type === '筒仓') {
+function getStackBaseColor(obj) {
+    const type = obj?.userData?.type;
+    if (type === '筒仓') {
       return obj?.userData?.owner === 'JF' ? lineColors.siloOwnerJF : lineColors.silo;
+    }
+    if (type === '星仓') {
+      return obj?.userData?.owner === 'JF' ? lineColors.starSiloOwnerJF : lineColors.starSilo;
     }
     return obj?.userData?.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
   }
 
-  function getSiloHoverColor(obj) {
-    return obj?.userData?.owner === 'JF' ? lineColors.siloHover : lineColors.siloHover;
+function getSiloHoverColor(obj) {
+    const type = obj?.userData?.type;
+    if (type === '星仓') {
+      return lineColors.starSiloHover;
+    }
+    return lineColors.siloHover;
   }
 
-  function getSiloSelectedColor(obj) {
-    return obj?.userData?.owner === 'JF' ? lineColors.siloSelected : lineColors.siloSelected;
+function getSiloSelectedColor(obj) {
+    const type = obj?.userData?.type;
+    if (type === '星仓') {
+      return lineColors.starSiloSelected;
+    }
+    return lineColors.siloSelected;
   }
 
   function clearHover() {
@@ -793,10 +848,12 @@
     selected.getWorldPosition(wp);
     const ud = selected.userData || {};
     
-    if (ud.type === '筒仓') {
+    if (ud.type === '筒仓' || ud.type === '星仓') {
+      const typeLabel = ud.type === '星仓' ? '星仓详情' : '筒仓详情';
+      const specialStyle = '';
       detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">筒仓详情 #${ud.id}</div>
-        <div>半径: ${ud.半径_m} 米</div>
+        <div style="font-weight:600;margin-bottom:6px;${specialStyle}">${typeLabel} #${ud.id}</div>
+        ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>半径: ${ud.半径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
         <div>容积: ${ud.容积_m3} m³</div>
         <div>最大容量: ${ud.最大容量_t} 吨</div>
@@ -848,7 +905,8 @@
         hovered = target;
       }
       if (hovered !== selected) {
-        const hoverColor = hovered.userData?.type === '筒仓' ? getSiloHoverColor(hovered) : lineColors.hover;
+        const hoveredType = hovered.userData?.type;
+        const hoverColor = (hoveredType === '筒仓' || hoveredType === '星仓') ? getSiloHoverColor(hovered) : lineColors.hover;
         setStackColor(hovered, hoverColor);
       }
       showHoverInfo(target, e.clientX, e.clientY);
@@ -866,7 +924,8 @@
     }
     if (selected) setStackColor(selected, getStackBaseColor(selected));
     selected = hovered;
-    const selectedColor = selected.userData?.type === '筒仓' ? getSiloSelectedColor(selected) : lineColors.selected;
+    const selectedType = selected.userData?.type;
+    const selectedColor = (selectedType === '筒仓' || selectedType === '星仓') ? getSiloSelectedColor(selected) : lineColors.selected;
     setStackColor(selected, selectedColor);
     updateDetailPanel();
     const info = selected.userData?.whInfo;
@@ -892,6 +951,30 @@
   renderer.domElement.addEventListener('click', (ev) => {
     if (!hovered) {
       clearSelection();
+    }
+  });
+
+  // 添加点击显示坐标功能
+  renderer.domElement.addEventListener('click', (ev) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    
+    // 创建一个水平地面来检测点击
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const intersectPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(groundPlane, intersectPoint);
+    
+    if (intersectPoint) {
+      // 显示坐标面板
+      coordsPanel.style.display = 'block';
+      coordsValue.innerHTML = `
+        X: ${intersectPoint.x.toFixed(2)} 米<br>
+        Y: ${intersectPoint.y.toFixed(2)} 米<br>
+        Z: ${intersectPoint.z.toFixed(2)} 米
+      `;
     }
   });
 
@@ -926,7 +1009,7 @@
     if (!selected) return;
     const id = selected.userData?.id;
     const type = selected.userData?.type || '堆垛';
-    const feeType = type === '筒仓' ? '筒仓仓储费用' : '堆垛仓储费用';
+    const feeType = (type === '筒仓' || type === '星仓') ? '筒仓仓储费用' : '堆垛仓储费用';
     alert(`查看${feeType}：${type} #${id}`);
   });
 
@@ -1024,6 +1107,56 @@
 
   let siloIdSeq = 1;
 
+  function createStarOutlinePoints(outerRadius, innerRadius, arms = 5) {
+    const pts = [];
+    const total = arms * 2;
+    for (let i = 0; i < total; i++) {
+      const angle = (i / total) * Math.PI * 2 - Math.PI / 2;
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      pts.push(new THREE.Vector2(Math.cos(angle) * radius, Math.sin(angle) * radius));
+    }
+    return pts;
+  }
+
+  function computePolygonArea2D(points) {
+    let area = 0;
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i];
+      const p2 = points[(i + 1) % points.length];
+      area += p1.x * p2.y - p2.x * p1.y;
+    }
+    return Math.abs(area) / 2;
+  }
+
+  function buildStarSiloBody(outerRadius, innerRadius, height, arms = 5) {
+    const outline = createStarOutlinePoints(outerRadius, innerRadius, arms);
+    const shape = new THREE.Shape();
+    shape.moveTo(outline[0].x, outline[0].y);
+    for (let i = 1; i < outline.length; i++) {
+      shape.lineTo(outline[i].x, outline[i].y);
+    }
+    shape.closePath();
+
+    const extrude = new THREE.ExtrudeGeometry(shape, {
+      steps: 1,
+      depth: height,
+      bevelEnabled: false
+    });
+    extrude.rotateX(Math.PI / 2);
+    extrude.translate(0, height / 2, 0);
+
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: lineColors.starSilo,
+      roughness: 0.55,
+      metalness: 0.25
+    });
+    const body = new THREE.Mesh(extrude, bodyMat);
+    body.castShadow = true;
+    body.receiveShadow = true;
+
+    return {body, outline};
+  }
+
   function placeSilo(x, z, radius, height, addDetails = true) {
     const group = new THREE.Group();
 
@@ -1087,6 +1220,88 @@
     return group;
   }
 
+  function placeStarSilo(x, z, height, options = {}) {
+    const {
+      outerRadius = 3.2,
+      innerRadius = outerRadius * 0.55,
+      arms = 5,
+      densityTPerM3 = 0.75,
+      addDetails = true
+    } = options;
+
+    const group = new THREE.Group();
+    const {body, outline} = buildStarSiloBody(outerRadius, innerRadius, height, arms);
+    group.add(body);
+
+    const frame = new THREE.LineSegments(
+      new THREE.EdgesGeometry(body.geometry),
+      new THREE.LineBasicMaterial({color: lineColors.starSilo})
+    );
+    group.add(frame);
+
+    if (addDetails) {
+      const capBaseGeo = new THREE.CylinderGeometry(innerRadius * 0.6, innerRadius * 0.6, 1.5, arms * 2);
+      const capBaseMat = new THREE.MeshStandardMaterial({
+        color: 0xffc75f,
+        roughness: 0.45,
+        metalness: 0.35
+      });
+      const capBase = new THREE.Mesh(capBaseGeo, capBaseMat);
+      capBase.position.y = height + 0.75;
+      capBase.castShadow = true;
+      capBase.receiveShadow = true;
+      group.add(capBase);
+
+      const spireGeo = new THREE.ConeGeometry(innerRadius * 0.45, 2.2, Math.max(arms * 2, 6));
+      const spireMat = new THREE.MeshStandardMaterial({
+        color: 0xffe59f,
+        roughness: 0.35,
+        metalness: 0.3
+      });
+      const spire = new THREE.Mesh(spireGeo, spireMat);
+      spire.position.y = height + 2.0;
+      spire.castShadow = true;
+      group.add(spire);
+    }
+
+    const area = computePolygonArea2D(outline);
+    const volume = area * height;
+    const rawCapacity = volume * densityTPerM3;
+    const capacity = rawCapacity.toFixed(1);
+    const current = random.float(rawCapacity * 0.3, rawCapacity * 0.9).toFixed(1);
+    const cargo = random.pick(['玉米', '小麦', '高粱', '大豆']);
+    const inboundAt = random.dateWithinDays(60);
+    const temperature = random.float(14, 24).toFixed(1);
+    const humidity = random.float(11, 17).toFixed(1);
+    const status = random.pick(['正常运营', '巡检中', '待清仓']);
+
+    const id = siloIdSeq++;
+    group.userData = {
+      type: '星仓',
+      id,
+      owner: 'JF',
+      半径_m: outerRadius.toFixed(1),
+      高度_m: height.toFixed(1),
+      容积_m3: volume.toFixed(0),
+      最大容量_t: capacity,
+      货类: cargo,
+      当前储量_t: current,
+      入仓时间: random.fmtDate(inboundAt),
+      仓内温度_c: temperature,
+      仓内湿度_percent: humidity,
+      状态: status,
+      星角数: arms
+    };
+
+    group.position.set(x, 0, z);
+    scene.add(group);
+
+    setStackColor(group, getStackBaseColor(group));
+    registerInteractive(group);
+
+    return group;
+  }
+
   function addSiloGroup(centerX, centerZ, D, spacingIntra, height) {
     const r = D / 2;
     const step = D + spacingIntra;
@@ -1117,6 +1332,7 @@
     platform.position.set(centerX, 0.05, centerZ + D * 0.6);
     platform.receiveShadow = true;
     scene.add(platform);
+
   }
 
   function layoutSilosAtEastOfWarehouses(warehouses, warehouseConfig, options = {}) {
@@ -1194,6 +1410,19 @@
       spacingInter: 1.5,
       rowGroupCounts: [2, 2, 2, 1, 1], // 减少一排筒仓（8个）
       roadSouthMargin: 15 // 减少南侧边距，更好地利用空间
+    });
+
+    placeStarSilo(-30.92, -24.30, 75, {
+      outerRadius: 3.0,
+      innerRadius: 1.6,
+      arms: 5
+    });
+
+    // 在指定坐标添加新的星型筒仓
+    placeStarSilo(-30.04, -55.97, 75, {
+      outerRadius: 3.0,
+      innerRadius: 1.6,
+      arms: 5
     });
 
     fitCameraToYard(yardL, yardW, wH + rH, 1.0);
