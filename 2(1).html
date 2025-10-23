@@ -1142,7 +1142,7 @@ function getSiloSelectedColor(obj) {
       depth: height,
       bevelEnabled: false
     });
-    extrude.rotateX(Math.PI / 2);
+    extrude.rotateX(-Math.PI / 2);
     extrude.translate(0, height / 2, 0);
 
     const bodyMat = new THREE.MeshStandardMaterial({
@@ -1293,7 +1293,7 @@ function getSiloSelectedColor(obj) {
       星角数: arms
     };
 
-    group.position.set(x, 0, z);
+    group.position.set(x, -36, z); // 星仓向下移动48米
     scene.add(group);
 
     setStackColor(group, getStackBaseColor(group));
@@ -1412,18 +1412,125 @@ function getSiloSelectedColor(obj) {
       roadSouthMargin: 15 // 减少南侧边距，更好地利用空间
     });
 
-    placeStarSilo(-30.92, -24.30, 75, {
-      outerRadius: 3.0,
-      innerRadius: 1.6,
-      arms: 5
+    placeStarSilo(-31.92, -24.30, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
     });
 
-    // 在指定坐标添加新的星型筒仓
-    placeStarSilo(-30.04, -55.97, 75, {
-      outerRadius: 3.0,
-      innerRadius: 1.6,
-      arms: 5
+    // 在指定坐标添加新的星型筒仓（无屋顶，较小底面）
+    placeStarSilo(-31.92, -56.50, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
     });
+    
+    placeStarSilo(-31.92, -35.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+
+    placeStarSilo(-31.92, -45.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    //二排星仓
+    placeStarSilo(-21.92, -24.30, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(-21.92, -35.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(-21.92, -45.50, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(-22.92, -56.50, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    //三排星仓
+    placeStarSilo(-11.92, -24.30, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(-11.92, -35.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(-11.92, -45.50, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(-12.92, -56.50, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    //四排星仓
+    placeStarSilo(8.92, -24.30, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(8.92, -35.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    //五排星仓
+    placeStarSilo(18.92, -24.30, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(18.92, -35.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    //六排星仓
+    placeStarSilo(28.92, -24.30, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+    placeStarSilo(28.92, -35.00, 49, {
+      outerRadius: 2.0,
+      innerRadius: 1.1,
+      arms: 5,
+      addDetails: false
+    });
+   
+    
 
     fitCameraToYard(yardL, yardW, wH + rH, 1.0);
     updateCompass();
