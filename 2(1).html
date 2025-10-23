@@ -129,11 +129,15 @@
       display: none;
       background: var(--panel-bg);
       color: var(--panel-fg);
-      padding: 10px 14px;
+      padding: 12px 16px;
       border-radius: 8px;
       box-shadow: var(--panel-shadow);
-      min-width: 240px;
+      min-width: 300px;
+      max-width: 400px;
+      max-height: 70vh;
+      overflow-y: auto;
       font-size: 14px;
+      line-height: 1.4;
     }
 
     #compass {
@@ -500,6 +504,57 @@
     starSiloSelected: 0xff7f50,
   };
 
+  // 物料数据模拟系统
+  const companyNames = ['建发集团', '国贸集团', '中粮集团', '华润集团', '新希望集团', '正邦集团'];
+  const materialTypes = ['玉米', '小麦', '大豆', '稻谷', '菜籽', '高粱'];
+  
+  // 公司颜色映射
+  const companyColors = {
+    '建发集团': 0x22aa22,  // 绿色
+    '国贸集团': 0x2563eb,  // 蓝色
+    '中粮集团': 0xf59e0b,  // 黄色
+    '华润集团': 0xef4444,  // 红色
+    '新希望集团': 0x8b5cf6, // 紫色
+    '正邦集团': 0x06b6d4   // 青色
+  };
+  
+  // 颜色转换工具函数
+  function getColorCSS(hexColor) {
+    return `#${hexColor.toString(16).padStart(6, '0')}`;
+  }
+
+  function generateMaterialData() {
+    const totalCapacity = parseFloat(arguments[0] || 1000);
+    
+    // 20% 的概率生成空仓
+    if (Math.random() < 0.2) {
+      return [];
+    }
+    
+    const companies = random.subset(companyNames).slice(0, Math.max(1, Math.floor(Math.random() * 4) + 1));
+    let remainingCapacity = totalCapacity * random.float(0.6, 0.95);
+    
+    const materials = [];
+    
+    companies.forEach((company, index) => {
+      const isLast = index === companies.length - 1;
+      const amount = isLast ? remainingCapacity : random.float(50, remainingCapacity * 0.7);
+      remainingCapacity -= amount;
+      
+      materials.push({
+        company: company,
+        material: random.pick(materialTypes),
+        amount: amount.toFixed(1),
+        storageDate: random.fmtDate(random.dateWithinDays(120)),
+        qualityGrade: random.pick(['一等品', '二等品', '三等品']),
+        moistureContent: random.float(12, 16).toFixed(1) + '%',
+        temperature: random.float(15, 25).toFixed(1) + '°C'
+      });
+    });
+    
+    return materials;
+  }
+
   const interactives = [];
   const interactiveSet = new Set();
   function registerInteractive(obj) {
@@ -699,7 +754,8 @@
     const 委托客户 = random.pick(['建发', '国贸']);
     const 货权方 = random.pick(['广东粮油', '中国粮食']);
     const 货类 = random.pick(['袋装玉米', '袋装小麦', '袋装鱼粉']);
-    const 当前质量 = random.float(5, 50).toFixed(1);
+    // 15% 的概率生成空堆垛
+    const 当前质量 = Math.random() < 0.15 ? '0.0' : random.float(5, 50).toFixed(1);
     const 入库 = random.dateWithinDays(180);
     const 出库 = random.dateBetween(入库, new Date());
 
@@ -720,7 +776,11 @@
     setStackColor(stack, isJF ? lineColors.ownerJF : lineColors.stack);
 
     scene.add(stack);
-    registerInteractive(stack);
+    
+    // 只有有货物的堆垛才能交互
+    if (parseFloat(当前质量) > 0) {
+      registerInteractive(stack);
+    }
   }
 
   // 交互逻辑
@@ -746,8 +806,28 @@
     if (type === '筒仓' || type === '星仓') {
       const cap = obj.userData?.最大容量_t;
       const current = obj.userData?.当前储量_t;
-      const label = type === '星仓' ? '星仓' : '筒仓';
-      infoPanel.innerHTML = `<div><b>${label} #${obj.userData?.id}</b></div><div>容量: ${cap} 吨</div><div>当前: ${current} 吨</div>`;
+      const materials = obj.userData?.物料详情 || [];
+      const label = type === '星仓' ? '★星仓' : '筒仓';
+      
+      let materialInfo = '';
+      if (materials.length > 0) {
+        materialInfo = '<div style="margin-top: 6px; font-size: 12px;">';
+        materials.forEach(m => {
+          const companyColor = getColorCSS(companyColors[m.company] || 0x666666);
+          materialInfo += `<div style="margin: 2px 0; display: flex; align-items: center;">
+            <div style="width: 10px; height: 10px; background: ${companyColor}; border-radius: 2px; margin-right: 6px; border: 1px solid #ccc;"></div>
+            <span style="color: ${companyColor}; font-weight: bold;">${m.company}: ${m.amount}吨 ${m.material}</span>
+          </div>`;
+        });
+        materialInfo += '</div>';
+      }
+      
+      infoPanel.innerHTML = `
+        <div><b>${label} #${obj.userData?.id}</b></div>
+        <div>容量: ${cap} 吨</div>
+        <div>当前: ${current} 吨</div>
+        ${materialInfo}
+      `;
     } else {
       const v = obj.userData?.体积_m3;
       infoPanel.innerHTML = `<div><b>堆垛 #${obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
@@ -849,21 +929,46 @@ function getSiloSelectedColor(obj) {
     const ud = selected.userData || {};
     
     if (ud.type === '筒仓' || ud.type === '星仓') {
-      const typeLabel = ud.type === '星仓' ? '星仓详情' : '筒仓详情';
-      const specialStyle = '';
+      const typeLabel = ud.type === '星仓' ? '★星仓详情' : '筒仓详情';
+      const materials = ud.物料详情 || [];
+      
+      let materialsHtml = '';
+      if (materials.length > 0) {
+        materialsHtml = '<div style="margin-top: 8px;"><b>物料详情:</b></div>';
+        materials.forEach((m, index) => {
+          const companyColor = getColorCSS(companyColors[m.company] || 0x666666);
+          materialsHtml += `
+            <div style="background: #f8f9fa; padding: 6px; margin: 4px 0; border-radius: 4px; border-left: 3px solid ${companyColor};">
+              <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                <div style="width: 12px; height: 12px; background: ${companyColor}; border-radius: 2px; margin-right: 8px; border: 1px solid #ccc;"></div>
+                <span style="font-weight: bold; color: ${companyColor};">${m.company}</span>
+              </div>
+              <div style="font-size: 13px;">物料: ${m.material} | 数量: ${m.amount} 吨</div>
+              <div style="font-size: 12px; color: #666;">
+                入库: ${m.storageDate} | 等级: ${m.qualityGrade}<br/>
+                水分: ${m.moistureContent} | 温度: ${m.temperature}
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        materialsHtml = '<div style="margin-top: 8px; color: #888;">暂无物料</div>';
+      }
+      
       detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;${specialStyle}">${typeLabel} #${ud.id}</div>
+        <div style="font-weight:600;margin-bottom:6px;">${typeLabel} #${ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>半径: ${ud.半径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
         <div>容积: ${ud.容积_m3} m³</div>
         <div>最大容量: ${ud.最大容量_t} 吨</div>
-        <div>货类: ${ud.货类 || '-'}</div>
+        <div>主要货类: ${ud.货类 || '-'}</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         <div>入仓时间: ${ud.入仓时间 || '-'}</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
         <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
         <div>状态: ${ud.状态 || '-'}</div>
-        <div>位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
+        ${materialsHtml}
+        <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
     } else {
       detailPanel.innerHTML = `
@@ -1039,21 +1144,84 @@ function getSiloSelectedColor(obj) {
     return mesh;
   }
 
-  function buildSiloMesh(radius, height, radialSegments = 32) {
-    const geo = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 8, false);
-
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xD8D8D0,
-      roughness: 0.9,
-      metalness: 0.05,
-      flatShading: false
+  function buildSiloMesh(radius, height, materials = [], radialSegments = 32) {
+    const group = new THREE.Group();
+    
+    // 如果没有物料数据，创建空筒仓
+    if (!materials || materials.length === 0) {
+      const geo = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 8, false);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xD8D8D0,
+        roughness: 0.9,
+        metalness: 0.05,
+        flatShading: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = height / 2;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      return group;
+    }
+    
+    // 计算总重量
+    const totalAmount = materials.reduce((sum, m) => sum + parseFloat(m.amount), 0);
+    let currentY = 0;
+    
+    // 为每个公司的物料创建分段
+    materials.forEach((material, index) => {
+      const proportion = parseFloat(material.amount) / totalAmount;
+      const segmentHeight = height * proportion * 0.8; // 0.8是填充率
+      
+      if (segmentHeight > 0.1) { // 只显示足够高的分段
+        const geo = new THREE.CylinderGeometry(radius, radius, segmentHeight, radialSegments, 1, false);
+        const companyColor = companyColors[material.company] || 0xD8D8D0;
+        
+        const mat = new THREE.MeshStandardMaterial({
+          color: companyColor,
+          roughness: 0.9,
+          metalness: 0.05,
+          flatShading: false
+        });
+        
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.y = currentY + segmentHeight / 2;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.userData = {
+          company: material.company,
+          material: material.material,
+          amount: material.amount
+        };
+        
+        group.add(mesh);
+        currentY += segmentHeight;
+      }
     });
-
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = height / 2;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
+    
+    // 如果有剩余空间，添加空的顶部分段
+    if (currentY < height) {
+      const emptyHeight = height - currentY;
+      const geo = new THREE.CylinderGeometry(radius, radius, emptyHeight, radialSegments, 1, false);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xF0F0F0, // 浅灰色表示空仓
+        roughness: 0.95,
+        metalness: 0.02,
+        flatShading: false,
+        transparent: true,
+        opacity: 0.3
+      });
+      
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = currentY + emptyHeight / 2;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = { isEmpty: true };
+      
+      group.add(mesh);
+    }
+    
+    return group;
   }
 
   function buildSiloRoof(radius, height = 3) {
@@ -1128,7 +1296,7 @@ function getSiloSelectedColor(obj) {
     return Math.abs(area) / 2;
   }
 
-  function buildStarSiloBody(outerRadius, innerRadius, height, arms = 5) {
+  function buildStarSiloBody(outerRadius, innerRadius, height, materials = [], arms = 5) {
     const outline = createStarOutlinePoints(outerRadius, innerRadius, arms);
     const shape = new THREE.Shape();
     shape.moveTo(outline[0].x, outline[0].y);
@@ -1160,7 +1328,12 @@ function getSiloSelectedColor(obj) {
   function placeSilo(x, z, radius, height, addDetails = true) {
     const group = new THREE.Group();
 
-    const shell = buildSiloMesh(radius, height);
+    // 先生成物料数据
+    const volume = Math.PI * radius * radius * height;
+    const capacity = (volume * 0.75).toFixed(1); // 假设密度0.75吨/立方米
+    const materials = generateMaterialData(capacity);
+    
+    const shell = buildSiloMesh(radius, height, materials);
     const outline = buildSiloWireframe(radius, height);
     group.add(shell);
     group.add(outline);
@@ -1181,14 +1354,13 @@ function getSiloSelectedColor(obj) {
     }
 
     // 添加筒仓用户数据
-    const volume = Math.PI * radius * radius * height;
-    const capacity = (volume * 0.75).toFixed(1); // 假设密度0.75吨/立方米
     const isJF = Math.random() < 0.3;
     const id = siloIdSeq++;
     
-    const 货类 = random.pick(['小麦', '玉米', '大豆', '稻谷']);
-    const 当前储量 = random.float(capacity * 0.3, capacity * 0.95).toFixed(1);
-    const 入仓时间 = random.dateWithinDays(90);
+    // 使用已生成的物料数据
+    const 当前储量 = materials.reduce((sum, m) => sum + parseFloat(m.amount), 0).toFixed(1);
+    const 主要货类 = materials.length > 0 ? materials[0].material : '空';
+    const 入仓时间 = materials.length > 0 ? materials[0].storageDate : '-';
     const 温度 = random.float(15, 25).toFixed(1);
     const 湿度 = random.float(12, 16).toFixed(1);
     
@@ -1200,13 +1372,15 @@ function getSiloSelectedColor(obj) {
       高度_m: height.toFixed(1),
       容积_m3: volume.toFixed(0),
       最大容量_t: capacity,
-      货类: 货类,
+      货类: 主要货类,
       当前储量_t: 当前储量,
-      入仓时间: random.fmtDate(入仓时间),
+      入仓时间: 入仓时间,
       仓内温度_c: 温度,
       仓内湿度_percent: 湿度,
-      状态: random.pick(['正常运营', '维护中', '空仓待用'])
+      状态: random.pick(['正常运营', '维护中', '空仓待用']),
+      物料详情: materials
     };
+
 
     group.position.set(x, 0, z);
     scene.add(group);
@@ -1214,8 +1388,11 @@ function getSiloSelectedColor(obj) {
     // 设置初始颜色
     setStackColor(group, getStackBaseColor(group));
     
-    // 添加到交互对象数组
-    registerInteractive(group);
+    // 只有有货物的仓库才能交互
+    const hasGoods = materials && materials.length > 0 && materials.some(m => parseFloat(m.amount) > 0);
+    if (hasGoods) {
+      registerInteractive(group);
+    }
     
     return group;
   }
@@ -1229,15 +1406,29 @@ function getSiloSelectedColor(obj) {
       addDetails = true
     } = options;
 
+    // 先计算星仓容量并生成物料数据
+    const area = computePolygonArea2D(createStarOutlinePoints(outerRadius, innerRadius, arms));
+    const volume = area * height;
+    const rawCapacity = volume * densityTPerM3;
+    const capacity = rawCapacity.toFixed(1);
+    const materials = generateMaterialData(capacity);
+
     const group = new THREE.Group();
-    const {body, outline} = buildStarSiloBody(outerRadius, innerRadius, height, arms);
+    const {body, outline} = buildStarSiloBody(outerRadius, innerRadius, height, materials, arms);
     group.add(body);
 
-    const frame = new THREE.LineSegments(
-      new THREE.EdgesGeometry(body.geometry),
-      new THREE.LineBasicMaterial({color: lineColors.starSilo})
-    );
-    group.add(frame);
+    // 为星仓添加线框（简化为轮廓线）
+    const outlineGeometry = new THREE.BufferGeometry().setFromPoints([
+      ...outline.map(p => new THREE.Vector3(p.x, 0, p.y)),
+      new THREE.Vector3(outline[0].x, 0, outline[0].y) // 闭合
+    ]);
+    const outlineBottom = new THREE.Line(outlineGeometry, new THREE.LineBasicMaterial({color: lineColors.starSilo}));
+    
+    const outlineTop = outlineBottom.clone();
+    outlineTop.position.y = height;
+    
+    group.add(outlineBottom);
+    group.add(outlineTop);
 
     if (addDetails) {
       const capBaseGeo = new THREE.CylinderGeometry(innerRadius * 0.6, innerRadius * 0.6, 1.5, arms * 2);
@@ -1264,13 +1455,10 @@ function getSiloSelectedColor(obj) {
       group.add(spire);
     }
 
-    const area = computePolygonArea2D(outline);
-    const volume = area * height;
-    const rawCapacity = volume * densityTPerM3;
-    const capacity = rawCapacity.toFixed(1);
-    const current = random.float(rawCapacity * 0.3, rawCapacity * 0.9).toFixed(1);
-    const cargo = random.pick(['玉米', '小麦', '高粱', '大豆']);
-    const inboundAt = random.dateWithinDays(60);
+    // 使用已生成的物料数据
+    const current = materials.reduce((sum, m) => sum + parseFloat(m.amount), 0).toFixed(1);
+    const cargo = materials.length > 0 ? materials[0].material : '空';
+    const inboundAt = materials.length > 0 ? materials[0].storageDate : '-';
     const temperature = random.float(14, 24).toFixed(1);
     const humidity = random.float(11, 17).toFixed(1);
     const status = random.pick(['正常运营', '巡检中', '待清仓']);
@@ -1286,18 +1474,25 @@ function getSiloSelectedColor(obj) {
       最大容量_t: capacity,
       货类: cargo,
       当前储量_t: current,
-      入仓时间: random.fmtDate(inboundAt),
+      入仓时间: inboundAt,
       仓内温度_c: temperature,
       仓内湿度_percent: humidity,
       状态: status,
-      星角数: arms
+      星角数: arms,
+      物料详情: materials
     };
+
 
     group.position.set(x, -36, z); // 星仓向下移动48米
     scene.add(group);
 
     setStackColor(group, getStackBaseColor(group));
-    registerInteractive(group);
+    
+    // 只有有货物的星仓才能交互
+    const hasGoods = materials && materials.length > 0 && materials.some(m => parseFloat(m.amount) > 0);
+    if (hasGoods) {
+      registerInteractive(group);
+    }
 
     return group;
   }
