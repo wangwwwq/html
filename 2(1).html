@@ -1427,7 +1427,7 @@ function setStackColor(obj, color) {
         } else if (child.material.type === 'MeshStandardMaterial') {
           if (isRoof) {
             // 屋顶颜色逻辑：可点击的为绿色，不可点击的为深灰色
-            const roofColor = isClickable ? 0x33bb33 : d7d7d7;
+            const roofColor = isClickable ? 0x33bb33 : 0xd7d7d7;
             child.material.color.set(roofColor);
           } else {
             // 非屋顶部分使用目标颜色
@@ -2188,7 +2188,7 @@ function getSiloSelectedColor(obj) {
       更新时间: apiData.timestamp
     };
 
-    group.position.set(x, -36, z); // 星仓向下移动36米
+    group.position.set(x,-36, z); // 星仓放置在地面
     scene.add(group);
     registerPickable(group);
 
