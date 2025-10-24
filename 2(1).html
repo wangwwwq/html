@@ -697,7 +697,7 @@
         // 空筒仓
         const geo = new THREE.CylinderGeometry(modelRadius, modelRadius, modelHeight, 16);
         const mat = new THREE.MeshStandardMaterial({
-          color: 0xD8D8D0,
+          color: emptySiloColor,
           roughness: 0.9,
           metalness: 0.05
         });
@@ -717,7 +717,7 @@
           
           if (segmentHeight > 0.01) {
             const geo = new THREE.CylinderGeometry(modelRadius, modelRadius, segmentHeight, 16);
-            const companyColor = companyColors[material.company] || 0xD8D8D0;
+            const companyColor = companyColors[material.company] || emptySiloColor;
             const mat = new THREE.MeshStandardMaterial({
               color: companyColor,
               roughness: 0.9,
@@ -866,6 +866,8 @@
     starSiloSelected: 0xff7f50,
   };
 
+  const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
+
   // 物料数据模拟系统
   const companyNames = ['建发集团', '国贸集团', '中粮集团', '华润集团', '新希望集团', '正邦集团'];
   const materialTypes = ['玉米', '小麦', '大豆', '稻谷', '菜籽', '高粱'];
@@ -941,8 +943,8 @@
   }
 
   function generateMaterialData(totalCapacity) {
-    // 20% 的概率生成空仓
-    if (Math.random() < 0.2) {
+    // 50% 的概率生成空仓，确保有足够多的空筒仓
+    if (Math.random() < 0.5) {
       return [];
     }
 
@@ -970,10 +972,20 @@
     return materials;
   }
 
+  const raycastTargets = [];
+  const raycastTargetSet = new Set();
   const interactives = [];
   const interactiveSet = new Set();
+
+  function registerPickable(obj) {
+    if (!obj || raycastTargetSet.has(obj)) return;
+    raycastTargets.push(obj);
+    raycastTargetSet.add(obj);
+  }
+
   function registerInteractive(obj) {
-    if (!obj) return;
+    if (!obj || interactiveSet.has(obj)) return;
+    registerPickable(obj);
     interactives.push(obj);
     interactiveSet.add(obj);
   }
@@ -1280,6 +1292,7 @@
     setStackColor(stack, isJF ? lineColors.ownerJF : lineColors.stack);
 
     scene.add(stack);
+    registerPickable(stack);
 
     // 只有有货物的堆垛才能交互
     if (parseFloat(当前质量) > 0) {
@@ -1293,18 +1306,35 @@
   const mouse = new THREE.Vector2();
   function resolveInteractiveTarget(object) {
     let current = object;
-    while (current) {
-      if (interactiveSet.has(current)) return current;
+    let depth = 0;
+    const maxDepth = 10; // 限制遍历深度，避免无限循环
+    
+    while (current && depth < maxDepth) {
+      // 检查当前对象是否在可交互集合中
+      if (interactiveSet.has(current)) {
+        // 额外验证：确保对象确实有物料数据或非空质量
+        const userData = current.userData;
+        if (userData?.type === '筒仓' || userData?.type === '星仓') {
+          // 筒仓/星仓必须有物料数据才可交互
+          if (userData.hasMaterialData === true) {
+            return current;
+          }
+        } else if (userData?.type === '堆垛') {
+          // 堆垛必须有非零质量才可交互
+          const 质量 = parseFloat(userData?.当前质量_t || '0');
+          if (质量 > 0) {
+            return current;
+          }
+        }
+      }
       current = current.parent;
+      depth++;
     }
     return null;
   }
 
   function showHoverInfo(obj, clientX, clientY) {
-    if (!isOwnedByCurrent(obj)) {
-      hideHoverInfo();
-      return;
-    }
+    // 移除权限检查，所有对象都可以显示悬停信息
 
     const type = obj.userData?.type;
     if (type === '筒仓' || type === '星仓') {
@@ -1362,23 +1392,38 @@ function hasActiveMaterials(materialDetails) {
 
 function setStackColor(obj, color) {
     if (!obj) return;
-    
+
     const type = obj.userData?.type;
-    if (type === '筒仓' || type === '星仓') {
+    const isCylindricalSilo = type === '筒仓';
+    const isStarSilo = type === '星仓';
+    const isSilo = isCylindricalSilo || isStarSilo;
+    const hasMaterialData = obj.userData?.hasMaterialData === true;
+
+    let targetColor = color;
+    if (isSilo && !hasMaterialData) {
+      const looksLikeCompanyTint =
+        color === lineColors.silo ||
+        color === lineColors.siloOwnerJF ||
+        color === lineColors.starSilo ||
+        color === lineColors.starSiloOwnerJF;
+      if (looksLikeCompanyTint) {
+        targetColor = emptySiloColor;
+      }
+    }
+
+    if (isSilo) {
       // 为筒仓/星仓设置颜色 - 同步主体与线框材质
       obj.children.forEach(child => {
-        if (child.material) {
-          if (child.material.type === 'LineBasicMaterial') {
-            child.material.color.set(color);
-          } else if (child.material.type === 'MeshStandardMaterial') {
-            child.material.color.set(color);
-          }
-
+        if (!child.material) return;
+        if (child.material.type === 'LineBasicMaterial') {
+          child.material.color.set(targetColor);
+        } else if (child.material.type === 'MeshStandardMaterial') {
+          child.material.color.set(targetColor);
         }
       });
     } else if (obj.material) {
       // 为堆垛设置颜色
-      obj.material.color.set(color);
+      obj.material.color.set(targetColor);
     }
   }
 
@@ -1391,13 +1436,13 @@ function getStackBaseColor(obj) {
 
     if (isCylindricalSilo) {
       if (!showCompanyColor) {
-        return lineColors.silo;
+        return emptySiloColor;
       }
       return owner === 'JF' ? lineColors.siloOwnerJF : lineColors.silo;
     }
   if (isStarSilo) {
     if (!showCompanyColor) {
-      return 0xD8D8D0; // 空星仓使用灰色
+      return emptySiloColor; // 空星仓使用灰色
     }
     return owner === 'JF' ? lineColors.starSiloOwnerJF : lineColors.starSilo;
   }
@@ -1444,8 +1489,8 @@ function getSiloSelectedColor(obj) {
   }
 
   function updateActionBar() {
-    if (selected && isOwnedByCurrent(selected)) {
-      actionBar.classList.add('show');
+    if (selected) {
+      actionBar.classList.add('show'); // 移除权限检查，选中任何对象都显示操作按钮
     } else {
       actionBar.classList.remove('show');
     }
@@ -1536,15 +1581,16 @@ function getSiloSelectedColor(obj) {
     mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(interactives, true);
+    
+    // 对所有可交互对象进行射线检测，获取所有相交点
+    const allHits = raycaster.intersectObjects(raycastTargets, true);
     let target = null;
-    for (const hit of hits) {
-      const candidate = resolveInteractiveTarget(hit.object);
-      if (!candidate) continue;
-      target = candidate;
-      break;
+
+    // 只考虑最近的第一个交互对象，避免穿透空筒仓命中后方目标
+    if (allHits.length > 0) {
+      target = resolveInteractiveTarget(allHits[0].object);
     }
-    if (target && isOwnedByCurrent(target)) {
+    if (target) {
       if (hovered !== target) {
         if (hovered && hovered !== selected) setStackColor(hovered, getStackBaseColor(hovered));
         hovered = target;
@@ -1561,8 +1607,8 @@ function getSiloSelectedColor(obj) {
   }
 
   function handleClick(e) {
-    if (e && e.stopPropagation) e.stopPropagation();
-    if (!hovered || !isOwnedByCurrent(hovered)) return;
+    // 事件冒泡已在调用此函数前被阻止，这里不需要再次处理
+    if (!hovered) return; // 移除权限检查，只要有悬停对象就可以点击
     if (selected === hovered) {
       clearSelection();
       return;
@@ -1592,15 +1638,20 @@ function getSiloSelectedColor(obj) {
 
   renderer.domElement.addEventListener('mousemove', handlePointerMove);
   renderer.domElement.addEventListener('mouseleave', clearHover);
-  renderer.domElement.addEventListener('click', handleClick);
+  // 统一的点击处理函数，避免多重事件监听器导致的冒泡问题
   renderer.domElement.addEventListener('click', (ev) => {
-    if (!hovered) {
+    // 阻止事件冒泡和默认行为
+    ev.stopPropagation();
+    ev.preventDefault();
+    
+    // 处理对象选择逻辑
+    if (hovered) {
+      handleClick(ev);
+    } else {
       clearSelection();
     }
-  });
-
-  // 添加点击显示坐标功能
-  renderer.domElement.addEventListener('click', (ev) => {
+    
+    // 显示坐标功能
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1753,7 +1804,7 @@ function getSiloSelectedColor(obj) {
     if (!materials || materials.length === 0) {
       const geo = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 8, false);
       const mat = new THREE.MeshStandardMaterial({
-        color: 0xD8D8D0,
+        color: emptySiloColor,
         roughness: 0.9,
         metalness: 0.05,
         flatShading: false
@@ -1777,7 +1828,7 @@ function getSiloSelectedColor(obj) {
       
       if (segmentHeight > 0.1) { // 只显示足够高的分段
         const geo = new THREE.CylinderGeometry(radius, radius, segmentHeight, radialSegments, 1, false);
-        const companyColor = companyColors[material.company] || 0xD8D8D0;
+        const companyColor = companyColors[material.company] || emptySiloColor;
         
         const mat = new THREE.MeshStandardMaterial({
           color: companyColor,
@@ -1829,11 +1880,13 @@ function getSiloSelectedColor(obj) {
   function buildSiloRoof(radius, height = 3) {
     const geo = new THREE.ConeGeometry(radius * 1.05, height, 24);
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xA0A0A0,
-      roughness: 0.7,
-      metalness: 0.3
+      color: 0xD0D0D0, // 更亮的灰色，避免看起来太黑
+      roughness: 0.6,
+      metalness: 0.2
     });
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true; // 添加接受阴影，让光照更自然
     return mesh;
   }
 
@@ -1917,7 +1970,7 @@ function getSiloSelectedColor(obj) {
 
     // 根据是否有物料决定颜色：空星仓用灰色，有物料用金色
     const hasMaterials = materials && materials.length > 0;
-    const bodyColor = hasMaterials ? lineColors.starSilo : 0xD8D8D0;
+    const bodyColor = hasMaterials ? lineColors.starSilo : emptySiloColor;
 
     const bodyMat = new THREE.MeshStandardMaterial({
       color: bodyColor,
@@ -1970,7 +2023,11 @@ function getSiloSelectedColor(obj) {
       group.add(ladder);
 
       const ventGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8);
-      const ventMat = new THREE.MeshStandardMaterial({ color: 0x666666 });
+      const ventMat = new THREE.MeshStandardMaterial({ 
+        color: 0x888888, // 更亮的灰色
+        roughness: 0.7,
+        metalness: 0.3
+      });
       const vent = new THREE.Mesh(ventGeo, ventMat);
       vent.position.y = height + 3.75;
       group.add(vent);
@@ -2000,14 +2057,17 @@ function getSiloSelectedColor(obj) {
 
     group.position.set(x, 0, z);
     scene.add(group);
+    registerPickable(group);
 
     // 只有有物料数据的筒仓才设置颜色和交互，空仓保持buildSiloMesh中设置的颜色
     if (hasMaterialData) {
       // 设置初始颜色
       setStackColor(group, getStackBaseColor(group));
       registerInteractive(group);
+    } else {
+      // 确保空仓使用灰色，不可交互
+      setStackColor(group, emptySiloColor);
     }
-    // 空仓不需要额外设置颜色，buildSiloMesh已经正确设置了灰色
 
     return group;
   }
@@ -2115,13 +2175,16 @@ function getSiloSelectedColor(obj) {
 
     group.position.set(x, -36, z); // 星仓向下移动36米
     scene.add(group);
+    registerPickable(group);
 
     // 只有有物料数据的星仓才设置颜色和交互，空仓保持buildStarSiloBody中设置的颜色
     if (hasMaterialData) {
       setStackColor(group, getStackBaseColor(group));
       registerInteractive(group);
+    } else {
+      // 确保空星仓使用灰色，不可交互
+      setStackColor(group, emptySiloColor);
     }
-    // 空星仓不需要额外设置颜色，buildStarSiloBody已经正确设置了颜色
 
     return group;
   }
