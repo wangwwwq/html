@@ -744,6 +744,7 @@
       const roof = new THREE.Mesh(roofGeo, roofMat);
       roof.position.y = modelHeight + 0.225;
       roof.castShadow = true;
+      roof.userData = { isRoof: true }; // 标识这是屋顶
       modelScene.add(roof);
     }
 
@@ -1413,12 +1414,25 @@ function setStackColor(obj, color) {
 
     if (isSilo) {
       // 为筒仓/星仓设置颜色 - 同步主体与线框材质
+      const isClickable = hasMaterialData; // 有物料数据的筒仓可以点击
+      
       obj.children.forEach(child => {
         if (!child.material) return;
+        
+        // 检查是否是屋顶
+        const isRoof = child.userData?.isRoof === true;
+        
         if (child.material.type === 'LineBasicMaterial') {
           child.material.color.set(targetColor);
         } else if (child.material.type === 'MeshStandardMaterial') {
-          child.material.color.set(targetColor);
+          if (isRoof) {
+            // 屋顶颜色逻辑：可点击的为绿色，不可点击的为深灰色
+            const roofColor = isClickable ? 0x33bb33 : d7d7d7;
+            child.material.color.set(roofColor);
+          } else {
+            // 非屋顶部分使用目标颜色
+            child.material.color.set(targetColor);
+          }
         }
       });
     } else if (obj.material) {
@@ -1887,6 +1901,7 @@ function getSiloSelectedColor(obj) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true; // 添加接受阴影，让光照更自然
+    mesh.userData = { isRoof: true }; // 标识这是屋顶
     return mesh;
   }
 
