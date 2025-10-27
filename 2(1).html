@@ -888,19 +888,128 @@
     return `#${hexColor.toString(16).padStart(6, '0')}`;
   }
 
-  // 模拟数据接口 - 筒仓和物料数据一起返回
+  // 真实API接口配置
+  const API_CONFIG = {
+    BASE_URL: 'http://127.0.0.1:8062',
+    PATH_PREFIX: '/driver-appointment-service',
+    ENDPOINTS: {
+      ALL_SILOS: '/api/silo/all'
+    }
+  };
+
+  // 全局筒仓数据缓存
+  let globalSiloData = null;
+  let lastFetchTime = 0;
+  const CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
+
+  // 从真实API获取所有筒仓数据
+  async function fetchAllSilosFromAPI() {
+    const now = Date.now();
+    
+    // 如果有缓存且未过期，直接使用缓存
+    if (globalSiloData && (now - lastFetchTime) < CACHE_DURATION) {
+      return globalSiloData;
+    }
+
+    try {
+      const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_SILOS}`;
+      console.log('正在从API获取筒仓数据:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
+      }
+
+      const apiResponse = await response.json();
+      
+      if (apiResponse.success && apiResponse.data && apiResponse.data.siloList) {
+        globalSiloData = apiResponse.data;
+        lastFetchTime = now;
+        console.log(`成功获取 ${globalSiloData.totalCount} 个筒仓数据`);
+        return globalSiloData;
+      } else {
+        throw new Error('API返回数据格式错误');
+      }
+    } catch (error) {
+      console.error('获取API数据失败，使用模拟数据:', error);
+      // 如果API调用失败，返回模拟数据作为后备
+      return generateFallbackData();
+    }
+  }
+
+  // 根据筒仓ID从全局数据中获取单个筒仓数据
   async function fetchSiloAndMaterialData(siloParams) {
+    const { siloId } = siloParams;
+    
+    // 获取所有筒仓数据
+    const allSilosData = await fetchAllSilosFromAPI();
+    
+    if (!allSilosData || !allSilosData.siloList) {
+      console.error('无法获取筒仓数据');
+      return generateFallbackSiloData(siloParams);
+    }
+
+    // 查找对应ID的筒仓
+    const targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === siloId);
+    
+    if (targetSilo) {
+      // 转换API数据格式为前端需要的格式
+      return {
+        siloInfo: {
+          id: targetSilo.siloInfo.id,
+          type: targetSilo.siloInfo.type,
+          radius: targetSilo.siloInfo.radius,
+          height: targetSilo.siloInfo.height,
+          volume: targetSilo.siloInfo.volume,
+          maxCapacity: targetSilo.siloInfo.maxCapacity,
+          currentStorage: targetSilo.siloInfo.currentStorage,
+          mainCargo: targetSilo.siloInfo.mainCargo,
+          storageTime: targetSilo.siloInfo.storageTime,
+          temperature: targetSilo.siloInfo.temperature,
+          humidity: targetSilo.siloInfo.humidity,
+          status: targetSilo.siloInfo.status,
+          owner: targetSilo.siloInfo.owner,
+          specialMark: targetSilo.siloInfo.specialMark,
+          arms: targetSilo.siloInfo.arms
+        },
+        materialDetails: targetSilo.materialDetails || [],
+        timestamp: targetSilo.timestamp,
+        dataSource: targetSilo.dataSource || 'production-api'
+      };
+    } else {
+      console.warn(`未找到ID为 ${siloId} 的筒仓，使用模拟数据`);
+      return generateFallbackSiloData(siloParams);
+    }
+  }
+
+  // 模拟数据后备方案
+  function generateFallbackData() {
+    console.log('使用模拟数据作为后备方案');
+    return {
+      siloList: [],
+      totalCount: 0,
+      timestamp: new Date().toISOString(),
+      dataSource: 'fallback-mock'
+    };
+  }
+
+  // 单个筒仓模拟数据后备方案
+  function generateFallbackSiloData(siloParams) {
     const {
       siloId,
-      siloType = '筒仓', // '筒仓' 或 '星仓'
+      siloType = '筒仓',
       radius,
       height,
       volume,
       capacity
     } = siloParams;
-
-    // 模拟接口延迟
-    await new Promise(resolve => setTimeout(resolve, 10 + Math.random() * 30));
 
     // 生成物料数据
     const materialData = generateMaterialData(capacity);
@@ -924,22 +1033,20 @@
       temperature: random.float(15, 25).toFixed(1),
       humidity: random.float(12, 16).toFixed(1),
       status: random.pick(['正常运营', '维护中', '空仓待用', '巡检中', '待清仓']),
-      // 只有有货物的筒仓才分配所有者
       owner: (materialData.length > 0 && materialData.some(m => parseFloat(m.amount) > 0) && Math.random() < 0.3) ? 'JF' : undefined
     };
 
     // 如果是星仓，添加特殊标识
     if (siloType === '星仓') {
       siloData.specialMark = '★星型筒仓';
-      siloData.arms = 5; // 星角数
+      siloData.arms = 5;
     }
 
-    // 返回统一的数据结构
     return {
       siloInfo: siloData,
       materialDetails: materialData,
       timestamp: new Date().toISOString(),
-      dataSource: 'mock-api'
+      dataSource: 'fallback-mock'
     };
   }
 
