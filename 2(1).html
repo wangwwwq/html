@@ -771,7 +771,7 @@
     // 更新标题
     const titleEl = modelPanel.querySelector('.model-title');
     const typeLabel = type === '星仓' ? '★星仓模型预览' : '筒仓模型预览';
-    titleEl.textContent = `${typeLabel} #${userData.id}`;
+    titleEl.textContent = `${typeLabel} ${userData.编号 || '#' + userData.id}`;
 
     // 显示面板
     modelPanel.style.display = 'block';
@@ -880,7 +880,12 @@
     '中粮集团': 0xf59e0b,  // 黄色
     '华润集团': 0xef4444,  // 红色
     '新希望集团': 0x8b5cf6, // 紫色
-    '正邦集团': 0x06b6d4   // 青色
+    '正邦集团': 0x06b6d4,  // 青色
+    // 新增的公司颜色映射
+    '广州市储备粮管理中心': 0x22aa22,  // 绿色
+    '黄埔区发展和改革局': 0x2563eb,  // 蓝色  
+    '河南华穗农产品有限公司': 0xf59e0b,  // 黄色
+    '粤海永顺泰（广州）麦芽有限公司': 0xef4444  // 红色
   };
   
   // 颜色转换工具函数
@@ -893,7 +898,7 @@
     BASE_URL: 'http://127.0.0.1:8062',
     PATH_PREFIX: '/driver-appointment-service',
     ENDPOINTS: {
-      ALL_SILOS: '/api/silo/all'
+      ALL_SILOS: '/api/order-driver/siloStarWarehouseData'
     }
   };
 
@@ -901,6 +906,9 @@
   let globalSiloData = null;
   let lastFetchTime = 0;
   const CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
+  
+  // 请求去重机制：确保同一时间只有一个API请求
+  let ongoingFetchPromise = null;
 
   // 从真实API获取所有筒仓数据
   async function fetchAllSilosFromAPI() {
@@ -910,37 +918,74 @@
     if (globalSiloData && (now - lastFetchTime) < CACHE_DURATION) {
       return globalSiloData;
     }
+    
+    // 如果已经有请求在进行中，等待该请求完成
+    if (ongoingFetchPromise) {
+      console.log('等待进行中的API请求完成...');
+      return await ongoingFetchPromise;
+    }
 
+    // 创建新的请求Promise
+    ongoingFetchPromise = performActualFetch();
+    
     try {
-      const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_SILOS}`;
-      console.log('正在从API获取筒仓数据:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+      const result = await ongoingFetchPromise;
+      return result;
+    } finally {
+      // 请求完成后清除Promise引用，允许后续请求
+      ongoingFetchPromise = null;
+    }
+    
+    async function performActualFetch() {
+      try {
+        const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_SILOS}`;
+        console.log('正在从API获取筒仓数据:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
         }
-      });
 
-      if (!response.ok) {
-        throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
+        const apiResponse = await response.json();
+        
+        if (apiResponse.success && apiResponse.data) {
+          // 将对象格式的数据转换为数组格式
+          const siloList = [];
+          const dataKeys = Object.keys(apiResponse.data);
+          
+          dataKeys.forEach(key => {
+            const siloData = apiResponse.data[key];
+            if (siloData && siloData.siloInfo) {
+              siloList.push(siloData);
+            }
+          });
+          
+          // 构造前端期望的数据格式
+          globalSiloData = {
+            siloList: siloList,
+            totalCount: siloList.length,
+            timestamp: new Date().toISOString(),
+            dataSource: 'production-api'
+          };
+          
+          lastFetchTime = now;
+          console.log(`成功获取 ${globalSiloData.totalCount} 个筒仓数据`);
+          return globalSiloData;
+        } else {
+          throw new Error('API返回数据格式错误');
+        }
+      } catch (error) {
+        console.error('获取API数据失败，使用模拟数据:', error);
+        // 如果API调用失败，返回模拟数据作为后备
+        return generateFallbackData();
       }
-
-      const apiResponse = await response.json();
-      
-      if (apiResponse.success && apiResponse.data && apiResponse.data.siloList) {
-        globalSiloData = apiResponse.data;
-        lastFetchTime = now;
-        console.log(`成功获取 ${globalSiloData.totalCount} 个筒仓数据`);
-        return globalSiloData;
-      } else {
-        throw new Error('API返回数据格式错误');
-      }
-    } catch (error) {
-      console.error('获取API数据失败，使用模拟数据:', error);
-      // 如果API调用失败，返回模拟数据作为后备
-      return generateFallbackData();
     }
   }
 
@@ -1420,13 +1465,10 @@
     while (current && depth < maxDepth) {
       // 检查当前对象是否在可交互集合中
       if (interactiveSet.has(current)) {
-        // 额外验证：确保对象确实有物料数据或非空质量
         const userData = current.userData;
         if (userData?.type === '筒仓' || userData?.type === '星仓') {
-          // 筒仓/星仓必须有物料数据才可交互
-          if (userData.hasMaterialData === true) {
-            return current;
-          }
+          // 筒仓/星仓无论是否有数据都可以悬停显示名称
+          return current;
         } else if (userData?.type === '堆垛') {
           // 堆垛必须有非零质量才可交互
           const 质量 = parseFloat(userData?.当前质量_t || '0');
@@ -1446,8 +1488,8 @@
 
     const type = obj.userData?.type;
     if (type === '筒仓' || type === '星仓') {
-      const cap = obj.userData?.最大容量_t;
-      const current = obj.userData?.当前储量_t;
+      const cap = obj.userData?.最大容量_t || '-';
+      const current = obj.userData?.当前储量_t || '0';
       const materials = obj.userData?.物料详情 || [];
       const label = type === '星仓' ? '★星仓' : '筒仓';
       
@@ -1462,17 +1504,20 @@
           </div>`;
         });
         materialInfo += '</div>';
+      } else {
+        // 当没有物料数据时显示空仓状态
+        materialInfo = '<div style="margin-top: 6px; font-size: 12px; color: #888;">暂无物料数据</div>';
       }
       
       infoPanel.innerHTML = `
-        <div><b>${label} #${obj.userData?.id}</b></div>
+        <div><b>${label} ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
         <div>容量: ${cap} 吨</div>
         <div>当前: ${current} 吨</div>
         ${materialInfo}
       `;
     } else {
       const v = obj.userData?.体积_m3;
-      infoPanel.innerHTML = `<div><b>堆垛 #${obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
+      infoPanel.innerHTML = `<div><b>堆垛 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div><div>体积: ${v} m³</div>`;
     }
 
     infoPanel.style.display = 'block';
@@ -2051,6 +2096,140 @@ function getSiloSelectedColor(obj) {
   }
 
   let siloIdSeq = 1;
+  
+  // 筒仓编号映射表 - 按照用户提供的精确格式
+  const siloNumberMap = {
+    // 所有筒仓编号 - 按照用户指定的顺序排列
+    silo: [
+      ['T105', 'T205', 'T305', 'T405'],
+      ['T503', 'T603', 'T703', 'T803'],
+      ['T104', 'T204', 'T304', 'T404'],
+      ['T502', 'T602', 'T702', 'T802'],
+      ['T103', 'T203', 'T303', 'T403'],
+      ['T501', 'T601', 'T701', 'T801'],
+      ['T102', 'T202', 'T302', 'T402'],
+      ['T101', 'T201', 'T301', 'T401'],
+    ],
+    // 星仓编号 - 按照实际创建顺序分配（共18个）
+    starSilo: [
+      // 第一组（一排星仓）：4个星仓 - 对应代码第2547-2551行
+      ['X104', 'X101', 'X103', 'X102'],
+      // 第二组（二排星仓）：4个星仓 - 对应代码第2552-2556行
+      ['X204', 'X203', 'X202', 'X201'],
+      // 第三组（三排星仓）：4个星仓 - 对应代码第2557-2561行
+      ['X304', 'X303', 'X302', 'X301'],
+      // 第四组（四排星仓）：2个星仓 - 对应代码第2562-2564行
+      ['X402', 'X401'],
+      // 第五组（五排星仓）：2个星仓 - 对应代码第2565-2567行
+      ['X502', 'X501'],
+      // 第六组（六排星仓）：2个星仓 - 对应代码第2568-2570行
+      ['X602', 'X601']
+    ]
+  };
+
+  // ================== 星仓位置与编号对应关系说明 ==================
+  /**
+   * 星仓布局说明（共18个星仓）：
+   * 
+   * 根据用户提供的编号规则和实际代码创建顺序：
+   * 
+   * 第一组（一排星仓，X=-31.92）：4个星仓
+   * - X104: 位置(-31.92, -24.30, 49) - 代码第2548行
+   * - X101: 位置(-31.92, -56.50, 49) - 代码第2549行  
+   * - X103: 位置(-31.92, -35.00, 49) - 代码第2550行
+   * - X102: 位置(-31.92, -45.00, 49) - 代码第2551行
+   * 
+   * 第二组（二排星仓，X≈-21.92）：4个星仓
+   * - X204: 位置(-21.92, -24.30, 49) - 代码第2553行
+   * - X203: 位置(-21.92, -35.00, 49) - 代码第2554行
+   * - X202: 位置(-21.92, -45.50, 49) - 代码第2555行
+   * - X201: 位置(-22.92, -56.50, 49) - 代码第2556行
+   * 
+   * 第三组（三排星仓，X≈-11.92）：4个星仓
+   * - X304: 位置(-11.92, -24.30, 49) - 代码第2558行
+   * - X303: 位置(-11.92, -35.00, 49) - 代码第2559行
+   * - X302: 位置(-11.92, -45.50, 49) - 代码第2560行
+   * - X301: 位置(-12.92, -56.50, 49) - 代码第2561行
+   * 
+   * 第四组（四排星仓，X=8.92）：2个星仓
+   * - X402: 位置(8.92, -24.30, 49) - 代码第2563行
+   * - X401: 位置(8.92, -35.00, 49) - 代码第2564行
+   * 
+   * 第五组（五排星仓，X=18.92）：2个星仓
+   * - X502: 位置(18.92, -24.30, 49) - 代码第2566行
+   * - X501: 位置(18.92, -35.00, 49) - 代码第2567行
+   * 
+   * 第六组（六排星仓，X=28.92）：2个星仓
+   * - X602: 位置(28.92, -24.30, 49) - 代码第2569行
+   * - X601: 位置(28.92, -35.00, 49) - 代码第2570行
+   * 
+   * 编号规则：
+   * - 格式：X + 数字编号（X101-X602）
+   * - 第一位数字：表示排号（1-6）
+   * - 第二、三位数字：表示该排内的序号（01-04）
+   * - 编号按照实际创建顺序分配，确保与代码中的placeStarSilo调用顺序一致
+   */
+
+  /**
+   * 星仓编号验证和查询功能
+   */
+  function validateStarSiloNumbering() {
+    const expectedTotal = 18;
+    const actualTotal = siloNumberMap.starSilo.flat().length;
+    
+    console.log('=== 星仓编号验证 ===');
+    console.log(`预期总数: ${expectedTotal}`);
+    console.log(`实际总数: ${actualTotal}`);
+    console.log(`验证结果: ${actualTotal === expectedTotal ? '✓ 通过' : '✗ 失败'}`);
+    
+    // 打印每组编号
+    siloNumberMap.starSilo.forEach((group, index) => {
+      console.log(`第${index + 1}组: [${group.join(', ')}] (${group.length}个)`);
+    });
+    
+    return actualTotal === expectedTotal;
+  }
+
+  /**
+   * 根据编号获取星仓位置信息（调试用）
+   */
+  function getStarSiloPositionByNumber(number) {
+    // 位置映射表（与代码中的placeStarSilo调用对应）
+    const positionMap = {
+      // 第一组
+      'X104': { x: -31.92, y: -24.30, z: 49, line: 2548 },
+      'X101': { x: -31.92, y: -56.50, z: 49, line: 2549 },
+      'X103': { x: -31.92, y: -35.00, z: 49, line: 2550 },
+      'X102': { x: -31.92, y: -45.00, z: 49, line: 2551 },
+      // 第二组
+      'X204': { x: -21.92, y: -24.30, z: 49, line: 2553 },
+      'X203': { x: -21.92, y: -35.00, z: 49, line: 2554 },
+      'X202': { x: -21.92, y: -45.50, z: 49, line: 2555 },
+      'X201': { x: -22.92, y: -56.50, z: 49, line: 2556 },
+      // 第三组
+      'X304': { x: -11.92, y: -24.30, z: 49, line: 2558 },
+      'X303': { x: -11.92, y: -35.00, z: 49, line: 2559 },
+      'X302': { x: -11.92, y: -45.50, z: 49, line: 2560 },
+      'X301': { x: -12.92, y: -56.50, z: 49, line: 2561 },
+      // 第四组
+      'X402': { x: 8.92, y: -24.30, z: 49, line: 2563 },
+      'X401': { x: 8.92, y: -35.00, z: 49, line: 2564 },
+      // 第五组
+      'X502': { x: 18.92, y: -24.30, z: 49, line: 2566 },
+      'X501': { x: 18.92, y: -35.00, z: 49, line: 2567 },
+      // 第六组
+      'X602': { x: 28.92, y: -24.30, z: 49, line: 2569 },
+      'X601': { x: 28.92, y: -35.00, z: 49, line: 2570 }
+    };
+    
+    return positionMap[number] || null;
+  }
+
+
+  
+  // 筒仓编号计数器
+  let siloRowIndex = 0;
+  let siloColIndex = 0;
 
   function createStarOutlinePoints(outerRadius, innerRadius, arms = 5) {
     const pts = [];
@@ -2112,6 +2291,19 @@ function getSiloSelectedColor(obj) {
     // 计算基本参数
     const volume = Math.PI * radius * radius * height;
     const capacity = (volume * 0.75).toFixed(1); // 假设密度0.75吨/立方米
+    
+    // 使用新的编号系统
+    let siloNumber;
+    if (siloRowIndex < siloNumberMap.silo.length && siloColIndex < siloNumberMap.silo[siloRowIndex].length) {
+      siloNumber = siloNumberMap.silo[siloRowIndex][siloColIndex];
+      siloColIndex++;
+      if (siloColIndex >= siloNumberMap.silo[siloRowIndex].length) {
+        siloColIndex = 0;
+        siloRowIndex++;
+      }
+    } else {
+      siloNumber = `T${siloIdSeq}`;
+    }
     const siloId = siloIdSeq++;
 
     // 通过模拟接口获取筒仓和物料数据
@@ -2159,6 +2351,7 @@ function getSiloSelectedColor(obj) {
     group.userData = {
       type: siloInfo.type,
       id: siloInfo.id,
+      编号: siloNumber,
       owner: hasMaterialData ? siloInfo.owner : undefined,
       半径_m: siloInfo.radius,
       高度_m: siloInfo.height,
@@ -2181,13 +2374,15 @@ function getSiloSelectedColor(obj) {
     scene.add(group);
     registerPickable(group);
 
-    // 只有有物料数据的筒仓才设置颜色和交互，空仓保持buildSiloMesh中设置的颜色
+    // 所有筒仓都注册为可交互对象，无论是否有物料数据
+    registerInteractive(group);
+    
+    // 根据是否有物料数据设置颜色
     if (hasMaterialData) {
       // 设置初始颜色
       setStackColor(group, getStackBaseColor(group));
-      registerInteractive(group);
     } else {
-      // 确保空仓使用灰色，不可交互
+      // 确保空仓使用灰色
       setStackColor(group, emptySiloColor);
     }
 
@@ -2208,6 +2403,25 @@ function getSiloSelectedColor(obj) {
     const volume = area * height;
     const rawCapacity = volume * densityTPerM3;
     const capacity = rawCapacity.toFixed(1);
+    
+    // 使用星仓专用编号系统
+    let starSiloNumber;
+    // 添加星仓编号计数器（如果不存在）
+    if (typeof starSiloRowIndex === 'undefined') {
+      window.starSiloRowIndex = 0;
+      window.starSiloColIndex = 0;
+    }
+    
+    if (window.starSiloRowIndex < siloNumberMap.starSilo.length && window.starSiloColIndex < siloNumberMap.starSilo[window.starSiloRowIndex].length) {
+      starSiloNumber = siloNumberMap.starSilo[window.starSiloRowIndex][window.starSiloColIndex];
+      window.starSiloColIndex++;
+      if (window.starSiloColIndex >= siloNumberMap.starSilo[window.starSiloRowIndex].length) {
+        window.starSiloColIndex = 0;
+        window.starSiloRowIndex++;
+      }
+    } else {
+      starSiloNumber = `X${String(siloIdSeq).padStart(3, '0')}`;
+    }
     const siloId = siloIdSeq++;
 
     // 通过模拟接口获取星仓和物料数据
@@ -2274,6 +2488,7 @@ function getSiloSelectedColor(obj) {
     group.userData = {
       type: siloInfo.type,
       id: siloInfo.id,
+      编号: starSiloNumber,
       owner: hasMaterialData ? siloInfo.owner : undefined,
       半径_m: siloInfo.radius,
       高度_m: siloInfo.height,
@@ -2299,12 +2514,14 @@ function getSiloSelectedColor(obj) {
     scene.add(group);
     registerPickable(group);
 
-    // 只有有物料数据的星仓才设置颜色和交互，空仓保持buildStarSiloBody中设置的颜色
+    // 所有星仓都注册为可交互对象，无论是否有物料数据
+    registerInteractive(group);
+    
+    // 根据是否有物料数据设置颜色
     if (hasMaterialData) {
       setStackColor(group, getStackBaseColor(group));
-      registerInteractive(group);
     } else {
-      // 确保空星仓使用灰色，不可交互
+      // 确保空星仓使用灰色
       setStackColor(group, emptySiloColor);
     }
 
@@ -2433,6 +2650,7 @@ function getSiloSelectedColor(obj) {
 
     // 并行创建所有星仓
     const starSiloPromises = [
+       // 一排星仓
       placeStarSilo(-31.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
       placeStarSilo(-31.92, -56.50, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
       placeStarSilo(-31.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
