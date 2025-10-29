@@ -1583,10 +1583,7 @@ function getSiloSelectedColor(obj) {
                 <span style="font-weight: bold; color: ${companyColor};">${m.company}${negativeLabel}</span>
               </div>
               <div style="font-size: 13px;">物料: ${m.material} | 数量: <span style="${amountStyle}">${negativeIcon}${m.amount} 吨</span></div>
-              <div style="font-size: 12px; color: #666;">
-                入库: ${m.storageDate} | 等级: ${m.qualityGrade}<br/>
-                水分: ${m.moistureContent} | 温度: ${m.temperature}
-              </div>
+              <div style="font-size: 12px; color: #666;">入仓时间: ${m.storageDate}</div>
             </div>
           `;
         });
@@ -1600,12 +1597,9 @@ function getSiloSelectedColor(obj) {
         <div>高度: ${ud.高度_m} 米</div>
         <div>容积: ${ud.容积_m3} m³</div>
         <div>最大容量: ${ud.最大容量_t} 吨</div>
-        <div>主要货类: ${ud.货类 || '-'}</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
-        <div>入仓时间: ${ud.入仓时间 || '-'}</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
         <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
-        <div>状态: ${ud.状态 || '-'}</div>
         ${materialsHtml}
         <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
@@ -2342,12 +2336,9 @@ function getSiloSelectedColor(obj) {
       高度_m: siloInfo.height,
       容积_m3: siloInfo.volume,
       最大容量_t: siloInfo.maxCapacity,
-      货类: siloInfo.mainCargo,
       当前储量_t: siloInfo.currentStorage,
-      入仓时间: siloInfo.storageTime,
       仓内温度_c: siloInfo.temperature,
       仓内湿度_percent: siloInfo.humidity,
-      状态: siloInfo.status,
       物料详情: hasMaterialData ? activeMaterials : [],
       hasMaterialData: hasMaterialData,
       // 添加接口数据来源标识
@@ -2502,12 +2493,9 @@ function getSiloSelectedColor(obj) {
       高度_m: siloInfo.height,
       容积_m3: siloInfo.volume,
       最大容量_t: siloInfo.maxCapacity,
-      货类: siloInfo.mainCargo,
       当前储量_t: siloInfo.currentStorage,
-      入仓时间: siloInfo.storageTime,
       仓内温度_c: siloInfo.temperature,
       仓内湿度_percent: siloInfo.humidity,
-      状态: siloInfo.status,
       星角数: siloInfo.arms ?? arms,
       物料详情: hasMaterialData ? activeMaterials : [],
       hasMaterialData: hasMaterialData,
