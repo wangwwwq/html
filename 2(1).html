@@ -233,35 +233,6 @@
     }
 
 
-    #modelPanel {
-      position: fixed;
-      right: 16px;
-      top: 130px;
-      z-index: 10;
-      display: none;
-      background: var(--panel-bg);
-      color: var(--panel-fg);
-      padding: 12px 16px;
-      border-radius: 8px;
-      box-shadow: var(--panel-shadow);
-      width: 280px;
-      height: 200px;
-    }
-
-    #modelPanel .model-title {
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #2563eb;
-      text-align: center;
-    }
-
-    #modelViewport {
-      width: 100%;
-      height: 160px;
-      border: 1px solid #d5d7db;
-      border-radius: 6px;
-      background: #f8f9fa;
-    }
 
     #monitorPanel {
       position: fixed;
@@ -450,10 +421,6 @@
 <div id="viewport"></div>
 <div id="infoPanel"></div>
 <div id="detailPanel"></div>
-<div id="modelPanel">
-  <div class="model-title">筒仓模型预览</div>
-  <div id="modelViewport"></div>
-</div>
 <div id="compass" aria-label="指南针">
   <svg viewBox="0 0 100 100">
     <defs>
@@ -583,8 +550,6 @@
   const container = document.getElementById('viewport');
   const infoPanel = document.getElementById('infoPanel');
   const detailPanel = document.getElementById('detailPanel');
-  const modelPanel = document.getElementById('modelPanel');
-  const modelViewport = document.getElementById('modelViewport');
   const compass = document.getElementById('compass');
   const whPanel = document.getElementById('whPanel');
 
@@ -615,203 +580,8 @@
   labelRenderer.domElement.style.zIndex = '10';
   container.appendChild(labelRenderer.domElement);
 
-  // 模型预览渲染器
-  let modelRenderer = null;
-  let modelScene = null;
-  let modelCamera = null;
-  let modelControls = null;
 
-  function initModelRenderer() {
-    if (modelRenderer) return;
 
-    modelScene = new THREE.Scene();
-    modelScene.background = new THREE.Color(0xf8f9fa);
-
-    const width = 248; // modelViewport width minus padding
-    const height = 160; // modelViewport height
-
-    modelCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    modelCamera.position.set(15, 15, 15);
-
-    modelRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    modelRenderer.setSize(width, height);
-    modelRenderer.setPixelRatio(window.devicePixelRatio);
-    modelRenderer.shadowMap.enabled = true;
-    modelRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    // 添加光照
-    const modelHemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
-    modelScene.add(modelHemiLight);
-
-    const modelDirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    modelDirLight.position.set(10, 10, 10);
-    modelDirLight.castShadow = true;
-    modelDirLight.shadow.mapSize.width = 512;
-    modelDirLight.shadow.mapSize.height = 512;
-    modelScene.add(modelDirLight);
-
-    modelViewport.appendChild(modelRenderer.domElement);
-
-    modelControls = new OrbitControls(modelCamera, modelRenderer.domElement);
-    modelControls.enableDamping = true;
-    modelControls.dampingFactor = 0.05;
-    modelControls.enablePan = false;
-    modelControls.minDistance = 8;
-    modelControls.maxDistance = 40;
-  }
-
-  function showSiloModel(siloObj) {
-    if (!siloObj || !siloObj.userData) return;
-
-    initModelRenderer();
-
-    // 清空之前的模型
-    while (modelScene.children.length > 2) { // 保留光照
-      modelScene.remove(modelScene.children[2]);
-    }
-
-    const userData = siloObj.userData;
-    const type = userData.type;
-    const radius = parseFloat(userData.半径_m) || 4.5;
-    const height = parseFloat(userData.高度_m) || 35;
-    const materials = userData.物料详情 || [];
-
-    // 缩放因子使模型适合预览窗口
-    const scale = 0.15;
-
-    if (type === '星仓') {
-      // 创建星仓模型
-      const outerRadius = radius * scale;
-      const innerRadius = outerRadius * 0.55;
-      const modelHeight = height * scale;
-      
-      const starOutline = createStarOutlinePoints(outerRadius, innerRadius, 5);
-      const shape = new THREE.Shape();
-      shape.moveTo(starOutline[0].x, starOutline[0].y);
-      for (let i = 1; i < starOutline.length; i++) {
-        shape.lineTo(starOutline[i].x, starOutline[i].y);
-      }
-      shape.closePath();
-
-      const extrude = new THREE.ExtrudeGeometry(shape, {
-        steps: 1,
-        depth: modelHeight,
-        bevelEnabled: false
-      });
-      extrude.rotateX(-Math.PI / 2);
-      extrude.translate(0, modelHeight / 2, 0);
-
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: lineColors.starSilo,
-        roughness: 0.55,
-        metalness: 0.25
-      });
-      const starModel = new THREE.Mesh(extrude, bodyMat);
-      starModel.castShadow = true;
-      starModel.receiveShadow = true;
-      modelScene.add(starModel);
-      
-      // 添加顶部装饰
-      const capGeo = new THREE.ConeGeometry(innerRadius * 0.45, 0.33, 6);
-      const capMat = new THREE.MeshStandardMaterial({
-        color: 0xffe59f,
-        roughness: 0.35,
-        metalness: 0.3
-      });
-      const cap = new THREE.Mesh(capGeo, capMat);
-      cap.position.y = modelHeight * 1.1;
-      cap.castShadow = true;
-      modelScene.add(cap);
-      
-    } else {
-      // 创建普通筒仓模型
-      const modelRadius = radius * scale;
-      const modelHeight = height * scale;
-      
-      if (materials.length === 0) {
-        // 空筒仓
-        const geo = new THREE.CylinderGeometry(modelRadius, modelRadius, modelHeight, 16);
-        const mat = new THREE.MeshStandardMaterial({
-          color: emptySiloColor,
-          roughness: 0.9,
-          metalness: 0.05
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.y = modelHeight / 2;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        modelScene.add(mesh);
-      } else {
-        // 有物料的筒仓，显示分层
-        const totalAmount = materials.reduce((sum, m) => sum + parseFloat(m.amount), 0);
-        let currentY = 0;
-        
-        materials.forEach((material) => {
-          const proportion = parseFloat(material.amount) / totalAmount;
-          const segmentHeight = modelHeight * proportion * 0.8;
-          
-          if (segmentHeight > 0.01) {
-            const geo = new THREE.CylinderGeometry(modelRadius, modelRadius, segmentHeight, 16);
-            const colorData = parseColor(material.companyColor);
-            const companyColor = colorData.hex || emptySiloColor;
-            const mat = new THREE.MeshStandardMaterial({
-              color: companyColor,
-              roughness: 0.9,
-              metalness: 0.05
-            });
-            
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.y = currentY + segmentHeight / 2;
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            modelScene.add(mesh);
-            currentY += segmentHeight;
-          }
-        });
-      }
-      
-      // 添加屋顶
-      const roofGeo = new THREE.ConeGeometry(modelRadius * 1.05, 0.45, 12);
-      const roofMat = new THREE.MeshStandardMaterial({
-        color: 0xA0A0A0,
-        roughness: 0.7,
-        metalness: 0.3
-      });
-      const roof = new THREE.Mesh(roofGeo, roofMat);
-      roof.position.y = modelHeight + 0.225;
-      roof.castShadow = true;
-      roof.userData = { isRoof: true }; // 标识这是屋顶
-      modelScene.add(roof);
-    }
-
-    // 添加地面
-    const groundGeo = new THREE.PlaneGeometry(20, 20);
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: 0xe8e8e8,
-      roughness: 1.0,
-      metalness: 0.0
-    });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    modelScene.add(ground);
-
-    // 设置相机位置
-    const maxDim = Math.max(radius * scale * 2, height * scale);
-    const distance = maxDim * 2.5;
-    modelCamera.position.set(distance, distance * 0.8, distance);
-    modelCamera.lookAt(0, height * scale / 2, 0);
-    modelControls.target.set(0, height * scale / 2, 0);
-    modelControls.update();
-
-    // 更新标题
-    const titleEl = modelPanel.querySelector('.model-title');
-    const typeLabel = type === '星仓' ? '★星仓模型预览' : '筒仓模型预览';
-    titleEl.textContent = `${typeLabel} ${userData.编号 || '#' + userData.id}`;
-
-    // 显示面板
-    modelPanel.style.display = 'block';
-  }
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -1510,7 +1280,6 @@
 
   document.addEventListener('click', (e) => {
     if (e.target && (e.target.closest && e.target.closest('#actionBar'))) return;
-    if (e.target && (e.target.closest && e.target.closest('#modelPanel'))) return;
     whPanel.style.display = 'none';
     clearSelection();
   });
@@ -1784,7 +1553,6 @@ function getSiloSelectedColor(obj) {
   function updateDetailPanel() {
     if (!selected) {
       detailPanel.style.display = 'none';
-      modelPanel.style.display = 'none';
       updateActionBar();
       return;
     }
@@ -1796,8 +1564,6 @@ function getSiloSelectedColor(obj) {
       const typeLabel = ud.type === '星仓' ? '★星仓详情' : '筒仓详情';
       const materials = ud.物料详情 || [];
       
-      // 显示筒仓/星仓的3D模型
-      showSiloModel(selected);
       
       let materialsHtml = '';
       if (materials.length > 0) {
@@ -1844,8 +1610,7 @@ function getSiloSelectedColor(obj) {
         <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
     } else {
-      // 如果不是筒仓/星仓，隐藏模型面板
-      modelPanel.style.display = 'none';
+      // 处理堆垛详情
       
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">堆垛详情 #${ud.id}</div>
@@ -1954,7 +1719,6 @@ function getSiloSelectedColor(obj) {
     updateDetailPanel();
     updateActionBar();
     whPanel.style.display = 'none';
-    modelPanel.style.display = 'none';
   }
 
   btnLfs.addEventListener('click', (e) => {
@@ -2039,14 +1803,6 @@ function getSiloSelectedColor(obj) {
     renderer.setSize(w, h);
     labelRenderer.setSize(w, h);
 
-    // 调整模型渲染器大小
-    if (modelRenderer) {
-      const modelWidth = 248;
-      const modelHeight = 160;
-      modelCamera.aspect = modelWidth / modelHeight;
-      modelCamera.updateProjectionMatrix();
-      modelRenderer.setSize(modelWidth, modelHeight);
-    }
 
     layoutInfoPanels();
   }
@@ -2951,11 +2707,6 @@ function getSiloSelectedColor(obj) {
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
 
-    // 渲染模型预览
-    if (modelRenderer && modelScene && modelCamera && modelPanel.style.display !== 'none') {
-      modelControls.update();
-      modelRenderer.render(modelScene, modelCamera);
-    }
   }
 
   init();
