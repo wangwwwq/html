@@ -752,7 +752,8 @@
           
           if (segmentHeight > 0.01) {
             const geo = new THREE.CylinderGeometry(modelRadius, modelRadius, segmentHeight, 16);
-            const companyColor = companyColors[material.company] || emptySiloColor;
+            const colorData = parseColor(material.companyColor);
+            const companyColor = colorData.hex || emptySiloColor;
             const mat = new THREE.MeshStandardMaterial({
               color: companyColor,
               roughness: 0.9,
@@ -908,7 +909,7 @@
   const companyNames = ['建发集团', '国贸集团', '中粮集团', '华润集团', '新希望集团', '正邦集团'];
   const materialTypes = ['玉米', '小麦', '大豆', '稻谷', '菜籽', '高粱'];
   
-  // 公司颜色映射
+  // 公司颜色映射（已弃用，现在使用API返回的companyColor字段）
   const companyColors = {
     '建发集团': 0x22aa22,  // 绿色
     '国贸集团': 0x2563eb,  // 蓝色
@@ -918,7 +919,7 @@
     '正邦集团': 0x06b6d4,  // 青色
     // 新增的公司颜色映射
     '广州市储备粮管理中心': 0x22aa22,  // 绿色
-    '黄埔区发展和改革局': 0x2563eb,  // 蓝色  
+    '黄埔区发展和改革局': 0x32b67a,  // hsl(162.0, 65%, 55%) - 绿蓝色
     '河南华穗农产品有限公司': 0xf59e0b,  // 黄色
     '粤海永顺泰（广州）麦芽有限公司': 0xef4444  // 红色
   };
@@ -928,9 +929,94 @@
     return `#${hexColor.toString(16).padStart(6, '0')}`;
   }
 
+  // HSL颜色处理函数
+  function parseColor(colorValue) {
+    if (!colorValue) return { hex: 0x666666, css: '#666666' };
+    
+    // 如果是HSL格式
+    if (typeof colorValue === 'string' && colorValue.includes('hsl')) {
+      const hexValue = hslToHex(colorValue);
+      return { hex: hexValue, css: getColorCSS(hexValue) };
+    }
+    
+    // 如果是十六进制数值
+    if (typeof colorValue === 'number') {
+      return { hex: colorValue, css: getColorCSS(colorValue) };
+    }
+    
+    // 如果是十六进制字符串
+    if (typeof colorValue === 'string' && colorValue.startsWith('#')) {
+      const hex = parseInt(colorValue.substring(1), 16);
+      return { hex: hex, css: colorValue };
+    }
+    
+    // 默认颜色
+    return { hex: 0x666666, css: '#666666' };
+  }
+
+  // HSL转十六进制
+  function hslToHex(hslString) {
+    const match = hslString.match(/hsl\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)%,\s*(\d+(?:\.\d+)?)%\)/);
+    if (!match) {
+      console.warn('无法解析HSL颜色:', hslString);
+      return 0x666666;
+    }
+    
+    const h = parseFloat(match[1]) / 360;
+    const s = parseFloat(match[2]) / 100;
+    const l = parseFloat(match[3]) / 100;
+    
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l; // 无饱和度
+    } else {
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    
+    const rHex = Math.round(r * 255);
+    const gHex = Math.round(g * 255);
+    const bHex = Math.round(b * 255);
+    
+    const result = (rHex << 16) + (gHex << 8) + bHex;
+    console.log(`HSL转换: ${hslString} -> RGB(${rHex}, ${gHex}, ${bHex}) -> 0x${result.toString(16)}`);
+    return result;
+  }
+
+  // 颜色解析测试函数
+  function testColorParsing() {
+    console.log('=== 颜色解析测试 ===');
+    const testColors = [
+      'hsl(162.0, 65%, 55%)',
+      '#ff0000',
+      0x00ff00,
+      'hsl(240, 100%, 50%)',
+      'invalid-color'
+    ];
+    
+    testColors.forEach(color => {
+      const result = parseColor(color);
+      console.log(`输入: ${color} -> hex: 0x${result.hex.toString(16)}, css: ${result.css}`);
+    });
+    console.log('=== 测试结束 ===');
+  }
+
   // 真实API接口配置
   const API_CONFIG = {
     BASE_URL: 'http://127.0.0.1:8062',
+    // BASE_URL: 'https://6166qiyy8859.vicp.fun',
     PATH_PREFIX: '/driver-appointment-service',
     ENDPOINTS: {
       ALL_SILOS: '/api/order-driver/siloStarWarehouseData'
@@ -1525,7 +1611,9 @@
       if (materials.length > 0) {
         materialInfo = '<div style="margin-top: 6px; font-size: 12px;">';
         materials.forEach(m => {
-          const companyColor = getColorCSS(companyColors[m.company] || 0x666666);
+          const colorData = parseColor(m.companyColor);
+          const companyColor = colorData.css || '#666666';
+          console.log(`悬停面板颜色: 公司=${m.company}, 原始颜色=${m.companyColor}, 解析结果=${companyColor}`);
           const isNegative = parseFloat(m.amount) < 0;
           const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
           const negativeIcon = isNegative ? '⬇️ ' : '';
@@ -1715,7 +1803,9 @@ function getSiloSelectedColor(obj) {
       if (materials.length > 0) {
         materialsHtml = '<div style="margin-top: 8px;"><b>物料详情:</b></div>';
         materials.forEach((m, index) => {
-          const companyColor = getColorCSS(companyColors[m.company] || 0x666666);
+          const colorData = parseColor(m.companyColor);
+          const companyColor = colorData.css || '#666666';
+          console.log(`详情面板颜色: 公司=${m.company}, 原始颜色=${m.companyColor}, 解析结果=${companyColor}`);
           const isNegative = parseFloat(m.amount) < 0;
           const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
           const negativeIcon = isNegative ? '⬇️ ' : '';
@@ -2027,7 +2117,8 @@ function getSiloSelectedColor(obj) {
       
       if (segmentHeight > 0.1) { // 只显示足够高的分段
         const geo = new THREE.CylinderGeometry(radius, radius, segmentHeight, radialSegments, 1, false);
-        const companyColor = companyColors[material.company] || emptySiloColor;
+        const colorData = parseColor(material.companyColor);
+        const companyColor = colorData.hex || emptySiloColor;
         
         const mat = new THREE.MeshStandardMaterial({
           color: companyColor,
@@ -2590,7 +2681,12 @@ function getSiloSelectedColor(obj) {
       };
     }
 
-    const { siloInfo, materialDetails } = apiData;
+    const { siloInfo: rawSiloInfo = {}, materialDetails = [] } = apiData;
+    const siloInfo = {
+      ...rawSiloInfo,
+      type: '星仓',
+      arms: rawSiloInfo?.arms ?? arms
+    };
     const activeMaterials = Array.isArray(materialDetails)
     ? materialDetails.filter(m => Number.isFinite(toNumber(m?.amount)) && Math.abs(toNumber(m.amount)) > 1e-6)
     : [];
@@ -2642,7 +2738,7 @@ function getSiloSelectedColor(obj) {
 
     // 使用接口返回的数据设置星仓信息
     group.userData = {
-      type: siloInfo.type,
+      type: '星仓',
       id: starSiloNumber, // 使用本地分配的星仓编号
       编号: starSiloNumber, // 使用本地分配的星仓编号，不使用API返回的编号
       owner: hasMaterialData ? siloInfo.owner : undefined,
@@ -2656,7 +2752,7 @@ function getSiloSelectedColor(obj) {
       仓内温度_c: siloInfo.temperature,
       仓内湿度_percent: siloInfo.humidity,
       状态: siloInfo.status,
-      星角数: arms,
+      星角数: siloInfo.arms ?? arms,
       物料详情: hasMaterialData ? activeMaterials : [],
       hasMaterialData: hasMaterialData,
       // 添加特殊标识
@@ -2768,6 +2864,9 @@ function getSiloSelectedColor(obj) {
   }
 
   async function init() {
+    // 测试颜色解析功能
+    testColorParsing();
+    
     const cfg = await fetchYardConfig();
     const {length: yardL, width: yardW, roadWidth} = cfg.yard;
     buildYardGrid(yardL, yardW);
