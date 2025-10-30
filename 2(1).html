@@ -671,6 +671,9 @@
     starSiloOwnerJF: 0xffc75f,
     starSiloHover: 0xffe59f,
     starSiloSelected: 0xff7f50,
+    weighbridge: 0x4A4A4A,
+    weighbridgeHover: 0x5A5A5A,
+    weighbridgeSelected: 0x6A6A6A,
   };
 
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
@@ -1428,6 +1431,9 @@
         } else if (userData?.type === '平仓P01') {
           // 所有平仓P01都可以交互，无论是否有物料数据
           return current;
+        } else if (userData?.type === '地磅') {
+          // 地磅可以交互
+          return current;
         }
       }
       current = current.parent;
@@ -1472,6 +1478,38 @@
         <div>容量: ${cap} 吨</div>
         <div>当前: ${current} 吨</div>
         ${materialInfo}
+      `;
+    } else if (type === '地磅') {
+      // 地磅悬停信息
+      const maxWeight = obj.userData?.最大载重_t || '-';
+      const status = obj.userData?.状态 || '未知';
+      const accuracy = obj.userData?.精度 || '-';
+      const usageCount = obj.userData?.使用次数 || '-';
+      const currentWeight = obj.userData?.当前重量_t || 0;
+      const plateNumber = obj.userData?.车牌号 || '';
+      const vehicleType = obj.userData?.车辆类型 || '';
+      const arrivalTime = obj.userData?.到达时间 || '';
+      
+      let vehicleInfo = '';
+      if (status === '称重中' && plateNumber) {
+        vehicleInfo = `
+          <div style="border-top: 1px solid #ccc; margin-top: 4px; padding-top: 4px;">
+            <div><b>车辆信息</b></div>
+            <div>车牌号: ${plateNumber}</div>
+            <div>车辆类型: ${vehicleType}</div>
+            <div>当前重量: ${currentWeight} 吨</div>
+            <div>到达时间: ${arrivalTime}</div>
+          </div>
+        `;
+      }
+      
+      infoPanel.innerHTML = `
+        <div><b>地磅 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
+        <div>最大载重: ${maxWeight} 吨</div>
+        <div>状态: ${status}</div>
+        <div>精度: ${accuracy}</div>
+        <div>使用次数: ${usageCount} 次</div>
+        ${vehicleInfo}
       `;
     } else {
       // 平仓P01悬停信息
@@ -1628,7 +1666,12 @@ function getSiloSelectedColor(obj) {
 
   function clearHover() {
     if (hovered && hovered !== selected) {
-      setStackColor(hovered, getStackBaseColor(hovered));
+      const hoveredType = hovered.userData?.type;
+      if (hoveredType === '地磅') {
+        setWeighbridgeColor(hovered, getWeighbridgeBaseColor(hovered));
+      } else {
+        setStackColor(hovered, getStackBaseColor(hovered));
+      }
     }
     hovered = null;
     hideHoverInfo();
@@ -1707,6 +1750,36 @@ function getSiloSelectedColor(obj) {
         ${materialsHtml}
         <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
+    } else if (ud.type === '地磅') {
+      // 处理地磅详情
+      let vehicleDetailsHtml = '';
+      if (ud.状态 === '称重中' && ud.车牌号) {
+        vehicleDetailsHtml = `
+          <div style="margin-top: 12px; padding: 8px; background: #f5f5f5; border-radius: 4px;">
+            <div style="font-weight: 600; margin-bottom: 4px; color: #2196F3;">🚛 当前车辆信息</div>
+            <div>车牌号: <span style="font-weight: bold; color: #1976D2;">${ud.车牌号}</span></div>
+            <div>车辆类型: ${ud.车辆类型}</div>
+            <div>当前重量: <span style="font-weight: bold; color: #FF5722;">${ud.当前重量_t} 吨</span></div>
+            <div>到达时间: ${ud.到达时间}</div>
+          </div>
+        `;
+      }
+      
+      detailPanel.innerHTML = `
+        <div style="font-weight:600;margin-bottom:6px;">地磅详情 ${ud.编号 || '#' + ud.id}</div>
+        <div>长度: ${ud.长度_m} 米</div>
+        <div>宽度: ${ud.宽度_m} 米</div>
+        <div>最大载重: ${ud.最大载重_t} 吨</div>
+        <div>精度: ${ud.精度}</div>
+        <div>状态: <span style="color: ${ud.状态 === '称重中' ? '#FF5722' : '#4CAF50'}; font-weight: bold;">${ud.状态}</span></div>
+        <div>制造商: ${ud.制造商}</div>
+        <div>安装日期: ${ud.安装日期}</div>
+        <div>最后校准: ${ud.最后校准}</div>
+        <div>校准周期: ${ud.校准周期}</div>
+        <div>使用次数: ${ud.使用次数} 次</div>
+        ${vehicleDetailsHtml}
+        <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
+      `;
     } else {
       // 处理平仓P01详情
       const materials = ud.物料详情 || [];
@@ -1777,8 +1850,20 @@ function getSiloSelectedColor(obj) {
       }
       if (hovered !== selected) {
         const hoveredType = hovered.userData?.type;
-        const hoverColor = (hoveredType === '筒仓' || hoveredType === '星仓') ? getSiloHoverColor(hovered) : lineColors.hover;
-        setStackColor(hovered, hoverColor);
+        let hoverColor;
+        if (hoveredType === '筒仓' || hoveredType === '星仓') {
+          hoverColor = getSiloHoverColor(hovered);
+        } else if (hoveredType === '地磅') {
+          hoverColor = lineColors.weighbridgeHover;
+        } else {
+          hoverColor = lineColors.hover;
+        }
+        
+        if (hoveredType === '地磅') {
+          setWeighbridgeColor(hovered, hoverColor);
+        } else {
+          setStackColor(hovered, hoverColor);
+        }
       }
       showHoverInfo(target, e.clientX, e.clientY);
     } else {
@@ -1793,11 +1878,30 @@ function getSiloSelectedColor(obj) {
       clearSelection();
       return;
     }
-    if (selected) setStackColor(selected, getStackBaseColor(selected));
+    if (selected) {
+      const selectedType = selected.userData?.type;
+      if (selectedType === '地磅') {
+        setWeighbridgeColor(selected, getWeighbridgeBaseColor(selected));
+      } else {
+        setStackColor(selected, getStackBaseColor(selected));
+      }
+    }
     selected = hovered;
     const selectedType = selected.userData?.type;
-    const selectedColor = (selectedType === '筒仓' || selectedType === '星仓') ? getSiloSelectedColor(selected) : lineColors.selected;
-    setStackColor(selected, selectedColor);
+    let selectedColor;
+    if (selectedType === '筒仓' || selectedType === '星仓') {
+      selectedColor = getSiloSelectedColor(selected);
+    } else if (selectedType === '地磅') {
+      selectedColor = lineColors.weighbridgeSelected;
+    } else {
+      selectedColor = lineColors.selected;
+    }
+    
+    if (selectedType === '地磅') {
+      setWeighbridgeColor(selected, selectedColor);
+    } else {
+      setStackColor(selected, selectedColor);
+    }
     updateDetailPanel();
     const info = selected.userData?.whInfo;
     if (info) {
@@ -1840,7 +1944,12 @@ function getSiloSelectedColor(obj) {
       updateActionBar();
       return;
     }
-    setStackColor(selected, getStackBaseColor(selected));
+    const selectedType = selected.userData?.type;
+    if (selectedType === '地磅') {
+      setWeighbridgeColor(selected, getWeighbridgeBaseColor(selected));
+    } else {
+      setStackColor(selected, getStackBaseColor(selected));
+    }
     selected = null;
     updateDetailPanel();
     updateActionBar();
@@ -1866,7 +1975,14 @@ function getSiloSelectedColor(obj) {
     if (!selected) return;
     const id = selected.userData?.id;
     const type = selected.userData?.type || '平仓P01';
-    const feeType = (type === '筒仓' || type === '星仓') ? '筒仓仓储费用' : '平仓P01仓储费用';
+    let feeType;
+    if (type === '筒仓' || type === '星仓') {
+      feeType = '筒仓仓储费用';
+    } else if (type === '地磅') {
+      feeType = '地磅使用费用';
+    } else {
+      feeType = '平仓P01仓储费用';
+    }
     alert(`查看${feeType}：${type} #${id}`);
   });
 
@@ -1938,6 +2054,141 @@ function getSiloSelectedColor(obj) {
   controls.addEventListener('change', () => {
     updateCompass();
   });
+
+  // 车辆3D模型构建函数
+  function buildVehicle(type = 'truck') {
+    const vehicleGroup = new THREE.Group();
+    
+    if (type === 'truck') {
+      // 卡车车身
+      const bodyGeometry = new THREE.BoxGeometry(8, 2.5, 2.2);
+      const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      body.position.set(0, 1.25, 0);
+      vehicleGroup.add(body);
+      
+      // 驾驶室
+      const cabGeometry = new THREE.BoxGeometry(2.5, 2.8, 2.2);
+      const cabMaterial = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
+      const cab = new THREE.Mesh(cabGeometry, cabMaterial);
+      cab.position.set(-4.75, 1.4, 0);
+      vehicleGroup.add(cab);
+      
+      // 车轮
+      const wheelGeometry = new THREE.CylinderGeometry(0.6, 0.6, 0.3, 12);
+      const wheelMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
+      
+      const wheelPositions = [
+        [-3.5, 0.6, -1.2], [-3.5, 0.6, 1.2], // 前轮
+        [1.5, 0.6, -1.2], [1.5, 0.6, 1.2],   // 后轮1
+        [3.5, 0.6, -1.2], [3.5, 0.6, 1.2]    // 后轮2
+      ];
+      
+      wheelPositions.forEach(pos => {
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.position.set(pos[0], pos[1], pos[2]);
+        wheel.rotation.z = Math.PI / 2;
+        vehicleGroup.add(wheel);
+      });
+      
+    } else if (type === 'car') {
+      // 小轿车车身
+      const bodyGeometry = new THREE.BoxGeometry(4.5, 1.5, 1.8);
+      const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xFF6347 });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      body.position.set(0, 0.75, 0);
+      vehicleGroup.add(body);
+      
+      // 车顶
+      const roofGeometry = new THREE.BoxGeometry(3, 1.2, 1.6);
+      const roofMaterial = new THREE.MeshLambertMaterial({ color: 0xDC143C });
+      const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+      roof.position.set(-0.3, 1.6, 0);
+      vehicleGroup.add(roof);
+      
+      // 车轮
+      const wheelGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 12);
+      const wheelMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
+      
+      const wheelPositions = [
+        [-1.5, 0.4, -1], [-1.5, 0.4, 1], // 前轮
+        [1.5, 0.4, -1], [1.5, 0.4, 1]    // 后轮
+      ];
+      
+      wheelPositions.forEach(pos => {
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.position.set(pos[0], pos[1], pos[2]);
+        wheel.rotation.z = Math.PI / 2;
+        vehicleGroup.add(wheel);
+      });
+    }
+    
+    return vehicleGroup;
+  }
+
+  // 地磅构建函数
+  function buildWeighbridge(length = 50, width = 58, height = 0.3) {
+    const group = new THREE.Group();
+    
+    // 地磅平台
+    const platformGeo = new THREE.BoxGeometry(length, height, width);
+    const platformMat = new THREE.MeshStandardMaterial({
+      color: 0x4A4A4A,
+      roughness: 0.8,
+      metalness: 0.2
+    });
+    const platform = new THREE.Mesh(platformGeo, platformMat);
+    platform.position.y = height / 2;
+    platform.castShadow = true;
+    platform.receiveShadow = true;
+    group.add(platform);
+    
+    // 地磅边框线框
+    const platformWireframe = createWireframe(platformGeo, 0x333333);
+    platformWireframe.position.y = height / 2;
+    group.add(platformWireframe);
+    
+    // 称重传感器支撑（4个角）
+    const sensorGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 8);
+    const sensorMat = new THREE.MeshStandardMaterial({
+      color: 0x666666,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    
+    const sensorPositions = [
+      [-length/2 + 2, -0.4, -width/2 + 0.5],
+      [length/2 - 2, -0.4, -width/2 + 0.5],
+      [-length/2 + 2, -0.4, width/2 - 0.5],
+      [length/2 - 2, -0.4, width/2 - 0.5]
+    ];
+    
+    sensorPositions.forEach(pos => {
+      const sensor = new THREE.Mesh(sensorGeo, sensorMat);
+      sensor.position.set(pos[0], pos[1], pos[2]);
+      sensor.castShadow = true;
+      group.add(sensor);
+    });
+    
+    // 控制箱
+    const controlBoxGeo = new THREE.BoxGeometry(1.2, 1.5, 0.8);
+    const controlBoxMat = new THREE.MeshStandardMaterial({
+      color: 0x2E7D32,
+      roughness: 0.6,
+      metalness: 0.1
+    });
+    const controlBox = new THREE.Mesh(controlBoxGeo, controlBoxMat);
+    controlBox.position.set(length/2 + 2, 0.75, 0);
+    controlBox.castShadow = true;
+    group.add(controlBox);
+    
+    // 控制箱线框
+    const controlBoxWireframe = createWireframe(controlBoxGeo, 0x1B5E20);
+    controlBoxWireframe.position.set(length/2 + 2, 0.75, 0);
+    group.add(controlBoxWireframe);
+    
+    return group;
+  }
 
   // 筒仓构建函数
   function buildSiloWireframe(radius, height, radialSegments = 24) {
@@ -2510,6 +2761,221 @@ function getSiloSelectedColor(obj) {
     return group;
   }
 
+  // 地磅状态管理
+  const weighbridgeStates = new Map(); // 存储每个地磅的状态
+  
+  // 车辆称重模拟函数
+  function simulateVehicleWeighing(weighbridge) {
+    const vehicleTypes = ['truck', 'car'];
+    const vehicleType = vehicleTypes[Math.floor(Math.random() * vehicleTypes.length)];
+    
+    // 根据车辆类型设置重量范围
+    let weight;
+    if (vehicleType === 'truck') {
+      weight = Math.floor(Math.random() * 40 + 20); // 20-60吨
+    } else {
+      weight = Math.floor(Math.random() * 3 + 1); // 1-4吨
+    }
+    
+    return {
+      type: vehicleType,
+      weight: weight,
+      plateNumber: generatePlateNumber(),
+      arrivalTime: new Date().toLocaleTimeString()
+    };
+  }
+  
+  // 生成车牌号
+  function generatePlateNumber() {
+    const provinces = ['京', '津', '沪', '渝', '冀', '豫', '云', '辽', '黑', '湘', '皖', '鲁', '新', '苏', '浙', '赣', '鄂', '桂', '甘', '晋', '蒙', '陕', '吉', '闽', '贵', '粤', '青', '藏', '川', '宁', '琼'];
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const numbers = '0123456789';
+    
+    const province = provinces[Math.floor(Math.random() * provinces.length)];
+    const letter = letters[Math.floor(Math.random() * letters.length)];
+    let plateNum = province + letter;
+    
+    for (let i = 0; i < 5; i++) {
+      if (Math.random() < 0.7) {
+        plateNum += numbers[Math.floor(Math.random() * numbers.length)];
+      } else {
+        plateNum += letters[Math.floor(Math.random() * letters.length)];
+      }
+    }
+    
+    return plateNum;
+  }
+
+  // 地磅放置函数
+  async function placeWeighbridge(x, z, id, options = {}) {
+    const {
+      length = 50,
+      width = 58,
+      height = 0.3,
+      rotation = 0
+    } = options;
+
+    const group = buildWeighbridge(length, width, height);
+    
+    // 初始化地磅状态
+    const weighbridgeState = {
+      hasVehicle: false,
+      vehicle: null,
+      vehicleModel: null,
+      currentWeight: 0,
+      isWeighing: false
+    };
+    weighbridgeStates.set(id, weighbridgeState);
+
+    // 设置地磅信息
+    group.userData = {
+      type: '地磅',
+      id: id,
+      编号: id,
+      长度_m: length,
+      宽度_m: width,
+      最大载重_t: 80, // 标准地磅载重
+      状态: '空闲',
+      精度: '±20kg',
+      制造商: '某某衡器公司',
+      安装日期: '2023-01-15',
+      最后校准: '2024-10-01',
+      校准周期: '6个月',
+      使用次数: Math.floor(Math.random() * 5000) + 1000,
+      当前重量_t: 0,
+      车牌号: '',
+      车辆类型: '',
+      到达时间: '',
+      hasMaterialData: true // 地磅总是有基本数据
+    };
+
+    // 设置位置和旋转
+    group.position.set(x, 0, z);
+    if (rotation !== 0) {
+      group.rotation.y = rotation;
+    }
+
+    scene.add(group);
+    registerPickable(group);
+    registerInteractive(group);
+
+    // 设置地磅颜色
+    setWeighbridgeColor(group, lineColors.weighbridge);
+
+    // 添加车辆上磅功能（定时模拟）
+    setTimeout(() => {
+      if (Math.random() < 0.7) { // 70%概率有车辆上磅
+        addVehicleToWeighbridge(group);
+      }
+    }, Math.random() * 10000 + 5000); // 5-15秒后可能有车辆上磅
+
+    return group;
+  }
+
+  // 车辆上磅函数
+  function addVehicleToWeighbridge(weighbridge) {
+    const weighbridgeId = weighbridge.userData.id;
+    const state = weighbridgeStates.get(weighbridgeId);
+    
+    if (state.hasVehicle) return; // 已有车辆
+    
+    // 模拟车辆称重
+    const vehicleInfo = simulateVehicleWeighing(weighbridge);
+    
+    // 创建车辆3D模型
+    const vehicleModel = buildVehicle(vehicleInfo.type);
+    
+    // 设置车辆位置（在地磅上）
+    const weighbridgePos = weighbridge.position;
+    const weighbridgeRotation = weighbridge.rotation.y;
+    
+    vehicleModel.position.set(
+      weighbridgePos.x,
+      weighbridgePos.y + 0.4, // 稍微抬高避免z-fighting
+      weighbridgePos.z
+    );
+    vehicleModel.rotation.y = weighbridgeRotation;
+    // 在第2897行后添加
+    vehicleModel.scale.set(5, 5, 5);  // 车辆放大2倍
+    
+    // 添加到场景
+    scene.add(vehicleModel);
+    
+    // 更新状态
+    state.hasVehicle = true;
+    state.vehicle = vehicleInfo;
+    state.vehicleModel = vehicleModel;
+    state.currentWeight = vehicleInfo.weight;
+    state.isWeighing = true;
+    
+    // 更新地磅userData
+    weighbridge.userData.状态 = '称重中';
+    weighbridge.userData.当前重量_t = vehicleInfo.weight;
+    weighbridge.userData.车牌号 = vehicleInfo.plateNumber;
+    weighbridge.userData.车辆类型 = vehicleInfo.type === 'truck' ? '卡车' : '轿车';
+    weighbridge.userData.到达时间 = vehicleInfo.arrivalTime;
+    
+    // 设置车辆离开定时器
+    setTimeout(() => {
+      removeVehicleFromWeighbridge(weighbridge);
+    }, Math.random() * 15000 + 10000); // 10-25秒后车辆离开
+    
+    console.log(`车辆上磅: ${weighbridgeId}, 车牌: ${vehicleInfo.plateNumber}, 重量: ${vehicleInfo.weight}吨`);
+  }
+  
+  // 车辆下磅函数
+  function removeVehicleFromWeighbridge(weighbridge) {
+    const weighbridgeId = weighbridge.userData.id;
+    const state = weighbridgeStates.get(weighbridgeId);
+    
+    if (!state.hasVehicle) return; // 没有车辆
+    
+    // 移除车辆模型
+    if (state.vehicleModel) {
+      scene.remove(state.vehicleModel);
+    }
+    
+    // 重置状态
+    state.hasVehicle = false;
+    state.vehicle = null;
+    state.vehicleModel = null;
+    state.currentWeight = 0;
+    state.isWeighing = false;
+    
+    // 更新地磅userData
+    weighbridge.userData.状态 = '空闲';
+    weighbridge.userData.当前重量_t = 0;
+    weighbridge.userData.车牌号 = '';
+    weighbridge.userData.车辆类型 = '';
+    weighbridge.userData.到达时间 = '';
+    weighbridge.userData.使用次数++;
+    
+    console.log(`车辆下磅: ${weighbridgeId}`);
+    
+    // 设置下一辆车上磅的定时器
+    setTimeout(() => {
+      if (Math.random() < 0.8) { // 80%概率有下一辆车
+        addVehicleToWeighbridge(weighbridge);
+      }
+    }, Math.random() * 20000 + 5000); // 5-25秒后可能有下一辆车
+  }
+
+  // 地磅颜色设置函数
+  function setWeighbridgeColor(obj, color) {
+    if (!obj) return;
+    
+    obj.children.forEach(child => {
+      if (child.material && child.material.type === 'LineBasicMaterial') {
+        child.material.color.set(color);
+      }
+    });
+  }
+
+  // 获取地磅基础颜色
+  function getWeighbridgeBaseColor(obj) {
+    return lineColors.weighbridge;
+  }
+
   async function placeStarSilo(x, z, height, options = {}) {
     const {
       outerRadius = 3.2,
@@ -2822,6 +3288,24 @@ function getSiloSelectedColor(obj) {
       ];
 
       await Promise.all(starSiloPromises);
+
+      // 添加地磅
+      console.log('开始添加地磅...');
+      const weighbridgePromises = [
+        placeWeighbridge(-80, 50, '1号磅', { 
+          length: 50, 
+          width: 58, 
+          rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
+        }),
+        placeWeighbridge(10, 50, '2号磅', { 
+          length: 50, 
+          width: 58, 
+          rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
+        })
+      ];
+      
+      await Promise.all(weighbridgePromises);
+      console.log('地磅添加完成');
 
     } catch (error) {
       console.error('初始化失败:', error);
