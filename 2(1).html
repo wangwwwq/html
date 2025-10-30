@@ -1748,7 +1748,6 @@ function getSiloSelectedColor(obj) {
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
         <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
         ${materialsHtml}
-        <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
     } else if (ud.type === '地磅') {
       // 处理地磅详情
@@ -1778,7 +1777,6 @@ function getSiloSelectedColor(obj) {
         <div>校准周期: ${ud.校准周期}</div>
         <div>使用次数: ${ud.使用次数} 次</div>
         ${vehicleDetailsHtml}
-        <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
     } else {
       // 处理平仓P01详情
@@ -1816,7 +1814,6 @@ function getSiloSelectedColor(obj) {
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         ${materialsHtml}
-        <div style="margin-top: 8px; font-size: 12px; color: #666;">位置(米): X=${wp.x.toFixed(1)}, Y=${wp.y.toFixed(1)}, Z=${wp.z.toFixed(1)}</div>
       `;
     }
 
@@ -2896,7 +2893,7 @@ function getSiloSelectedColor(obj) {
     );
     vehicleModel.rotation.y = weighbridgeRotation;
     // 在第2897行后添加
-    vehicleModel.scale.set(5, 5, 5);  // 车辆放大2倍
+    vehicleModel.scale.set(5, 5, 5);  // 车辆放大5倍
     
     // 添加到场景
     scene.add(vehicleModel);
