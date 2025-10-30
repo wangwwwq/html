@@ -674,6 +674,7 @@
   };
 
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
+  const noNumberSiloColor = 0xFF6B6B; // 红色，表示没有分配编号的筒仓
 
   // 物料数据模拟系统
   const companyNames = ['建发集团', '国贸集团', '中粮集团', '华润集团', '新希望集团', '正邦集团'];
@@ -883,7 +884,28 @@
 
   // 根据筒仓编号从全局数据中获取单个筒仓数据
   async function fetchSiloAndMaterialData(siloParams) {
-    const { siloId, siloNumber, siloType } = siloParams;
+    const { siloId, siloNumber, siloType, radius, height, volume, capacity } = siloParams;
+    
+    // 如果没有编号，直接返回默认数据，表示接口中没有对应数据
+    if (!siloNumber) {
+      console.log(`筒仓 ID ${siloId} 没有分配编号，使用默认数据`);
+      return {
+        siloInfo: {
+          id: `未分配编号-${siloId}`,
+          type: siloType || '筒仓',
+          radius: radius,
+          height: height,
+          volume: volume,
+          maxCapacity: capacity,
+          currentStorage: 0,
+          owner: undefined,
+          status: '未配置'
+        },
+        materialDetails: [],
+        timestamp: Date.now(),
+        dataSource: 'no-number-assigned'
+      };
+    }
     
     // 获取所有筒仓数据
     const allSilosData = await fetchAllSilosFromAPI();
@@ -901,15 +923,10 @@
       console.log(`使用编号查找筒仓: ${siloNumber}`, targetSilo ? '找到' : '未找到');
     }
     
-    // 如果按编号未找到，则使用原有的数字ID映射逻辑作为备用
+    // 如果按编号未找到，不使用备用映射，直接返回空数据
+    // 这样可以确保只有API中真正存在的编号才会显示数据
     if (!targetSilo) {
-      const apiSiloIds = allSilosData.siloList.map(silo => silo.siloInfo.id).sort(); // 按字母顺序排序，确保一致性
-      let targetApiId;
-      if (siloId <= apiSiloIds.length) {
-        targetApiId = apiSiloIds[siloId - 1]; // siloId从1开始，数组从0开始
-      }
-      console.log(`备用映射: 数字ID ${siloId} -> API ID ${targetApiId}`);
-      targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === targetApiId);
+      console.warn(`API中未找到筒仓编号: ${siloNumber}`);
     }
     
     if (targetSilo) {
@@ -947,7 +964,7 @@
         dataSource: targetSilo.dataSource || 'production-api'
       };
     } else {
-      console.warn(`未找到映射的筒仓数据: 数字ID ${siloId} -> API ID ${targetApiId}`);
+      console.warn(`未找到筒仓数据: 编号 ${siloNumber}, 数字ID ${siloId}`);
       // 返回默认的空筒仓数据，避免系统崩溃
       return {
         siloInfo: {
@@ -1570,8 +1587,12 @@ function getStackBaseColor(obj) {
     const showCompanyColor = obj?.userData?.hasMaterialData === true;
     const isCylindricalSilo = type === '筒仓';
     const isStarSilo = type === '星仓';
+    const hasNumber = obj?.userData?.编号 && obj?.userData?.编号 !== '未分配';
 
     if (isCylindricalSilo) {
+      if (!hasNumber) {
+        return noNumberSiloColor; // 没有编号的筒仓使用红色
+      }
       if (!showCompanyColor) {
         return emptySiloColor;
       }
@@ -2086,18 +2107,28 @@ function getSiloSelectedColor(obj) {
   let starSiloRowIndex = 0;
   let starSiloColIndex = 0;
   
-  // 筒仓编号映射表 - 按照用户提供的精确格式
+  // 筒仓编号映射表 - 按照实际创建顺序排列
   const siloNumberMap = {
-    // 所有筒仓编号 - 按照用户指定的顺序排列
+    // 所有筒仓编号 - 按照 rowGroupCounts: [2, 2, 2, 1, 1, 1] 的实际创建顺序
     silo: [
+      // 第1排第1组 (rowGroupCounts[0] = 2组中的第1组)
       ['T105', 'T205', 'T305', 'T405'],
+      // 第1排第2组 (rowGroupCounts[0] = 2组中的第2组)  
       ['T503', 'T603', 'T703', 'T803'],
+      // 第2排第1组 (rowGroupCounts[1] = 2组中的第1组)
       ['T104', 'T204', 'T304', 'T404'],
+      // 第2排第2组 (rowGroupCounts[1] = 2组中的第2组)
       ['T502', 'T602', 'T702', 'T802'],
+      // 第3排第1组 (rowGroupCounts[2] = 2组中的第1组)
       ['T103', 'T203', 'T303', 'T403'],
+      // 第3排第2组 (rowGroupCounts[2] = 2组中的第2组)
       ['T501', 'T601', 'T701', 'T801'],
+      // 第4排第1组 (rowGroupCounts[3] = 1组)
       ['T102', 'T202', 'T302', 'T402'],
+      // 第5排第1组 (rowGroupCounts[4] = 1组)
       ['T101', 'T201', 'T301', 'T401'],
+      // 第6排第1组 (rowGroupCounts[5] = 1组) - 您新增的编号
+      ['T1011', 'T2011', 'T3011', 'T4011']
     ],
     // 星仓编号 - 按照实际创建顺序分配（共18个）
     starSilo: [
@@ -2369,7 +2400,7 @@ function getSiloSelectedColor(obj) {
         siloRowIndex++;
       }
     } else {
-      siloNumber = `T${siloIdSeq}`;
+      siloNumber = null; // 不分配编号，表示接口中没有对应数据
     }
     const siloId = siloIdSeq++;
 
@@ -2441,7 +2472,7 @@ function getSiloSelectedColor(obj) {
     group.userData = {
       type: siloInfo.type,
       id: siloInfo.id,
-      编号: siloInfo.id, // 直接使用API返回的编号
+      编号: siloNumber || '未分配', // 使用本地编号，如果没有则显示"未分配"
       owner: hasMaterialData ? siloInfo.owner : undefined,
       半径_m: siloInfo.radius,
       高度_m: siloInfo.height,
@@ -2464,12 +2495,15 @@ function getSiloSelectedColor(obj) {
     // 所有筒仓都注册为可交互对象，无论是否有物料数据
     registerInteractive(group);
     
-    // 根据是否有物料数据设置颜色
-    if (hasMaterialData) {
-      // 设置初始颜色
+    // 根据编号和物料数据设置颜色
+    if (!siloNumber) {
+      // 没有编号的筒仓使用红色，表示接口中没有对应数据
+      setStackColor(group, noNumberSiloColor);
+    } else if (hasMaterialData) {
+      // 有编号且有物料数据的筒仓设置正常颜色
       setStackColor(group, getStackBaseColor(group));
     } else {
-      // 确保空仓使用灰色
+      // 有编号但无物料数据的筒仓使用灰色
       setStackColor(group, emptySiloColor);
     }
 
@@ -2755,7 +2789,7 @@ function getSiloSelectedColor(obj) {
         height: 35,
         spacingIntra: 0.5,
         spacingInter: 1.5,
-        rowGroupCounts: [2, 2, 2, 1, 1], // 减少一排筒仓（8个）
+        rowGroupCounts: [2, 2, 2, 1, 1,1], // 减少一排筒仓（8个）
         roadSouthMargin: 15 // 减少南侧边距，更好地利用空间
       });
 
@@ -2788,6 +2822,7 @@ function getSiloSelectedColor(obj) {
       ];
 
       await Promise.all(starSiloPromises);
+
     } catch (error) {
       console.error('初始化失败:', error);
       // 网络错误已在API调用中显示，这里不再重复显示
