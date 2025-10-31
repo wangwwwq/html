@@ -3908,35 +3908,41 @@ function getSiloSelectedColor(obj) {
         rowGroupCounts: [2, 2, 2, 1, 1], // 筒仓
         roadSouthMargin: 15, // 减少南侧边距，更好地利用空间
         xOffset: 0, // X方向偏移量（正值向东，负值向西）
-        zOffset: 0  // Z方向偏移量（正值向北，负值向南）
+        zOffset: -20  // Z方向偏移量（正值向北，负值向南）
       });
 
-      // 并行创建所有星仓
+      // 星仓偏移量配置
+      const starSiloConfig = {
+        xOffset: 0, // X方向偏移量（正值向东，负值向西）
+        zOffset: -20  // Z方向偏移量（正值向北，负值向南）
+      };
+
+      // 并行创建所有星仓（应用偏移量）
       const starSiloPromises = [
          // 一排星仓
-        placeStarSilo(-31.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-31.92, -56.50, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-31.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-31.92, -45.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-31.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-31.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-31.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-31.92 + starSiloConfig.xOffset, -45.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         // 二排星仓
-        placeStarSilo(-21.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-21.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-21.92, -45.50, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-22.92, -56.50, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-21.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-21.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-21.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-22.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         // 三排星仓
-        placeStarSilo(-11.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-11.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-11.92, -45.50, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-12.92, -56.50, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-11.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-11.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-11.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(-12.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         // 四排星仓
-        placeStarSilo(8.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(8.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(8.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(8.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         // 五排星仓
-        placeStarSilo(18.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(18.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(18.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(18.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         // 六排星仓
-        placeStarSilo(28.92, -24.30, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(28.92, -35.00, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
+        placeStarSilo(28.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        placeStarSilo(28.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
       ];
 
       await Promise.all(starSiloPromises);
@@ -3945,7 +3951,7 @@ function getSiloSelectedColor(obj) {
       console.log('🚀 开始立即添加地磅...');
       
       // 立即创建地磅，不使用await等待，确保立即渲染
-      placeWeighbridge(-60, -40, '1号磅', { 
+      placeWeighbridge(-55, -50, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
         length: 20, 
         width: 20, 
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
@@ -3955,7 +3961,7 @@ function getSiloSelectedColor(obj) {
         console.error('❌ 1号磅渲染失败:', error);
       });
       
-      placeWeighbridge(10, 50, '2号磅', { 
+      placeWeighbridge(-10, -20, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
         length: 20, 
         width: 20, 
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
