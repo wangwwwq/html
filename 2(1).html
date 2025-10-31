@@ -556,6 +556,9 @@
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
   scene.fog = new THREE.Fog(0xf0f0f0, 600, 2500);
+  
+  // 将scene存储到window对象中，确保全局可访问
+  window.globalScene = scene;
 
   const camera = new THREE.PerspectiveCamera(65, container.clientWidth / container.clientHeight, 0.1, 5000);
   camera.position.set(600, 600, 600);
@@ -619,39 +622,6 @@
     return new THREE.LineSegments(edges, mat);
   }
 
-  // 随机工具
-  const random = {
-    pick: (arr) => arr[Math.floor(Math.random() * arr.length)],
-    float: (min, max) => Math.random() * (max - min) + min,
-    dateBetween(start, end) {
-      const t = start.getTime() + Math.random() * (end.getTime() - start.getTime());
-      return new Date(t);
-    },
-    dateWithinDays(days) {
-      const now = new Date();
-      const past = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-      return this.dateBetween(past, now);
-    },
-    fmtDate(d) {
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    },
-    subset(arr) {
-      const copy = [...arr];
-      for (let i = copy.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [copy[i], copy[j]] = [copy[j], copy[i]];
-      }
-      const count = Math.max(1, Math.floor(Math.random() * copy.length));
-      return copy.slice(0, count);
-    },
-    phone() {
-      const starts = ['3', '5', '6', '7', '8', '9'];
-      let s = '1' + this.pick(starts);
-      for (let i = 0; i < 9; i++) s += Math.floor(Math.random() * 10);
-      return s;
-    }
-  };
 
   // 颜色配置
   const lineColors = {
@@ -679,9 +649,6 @@
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
   const noNumberSiloColor = 0xFF6B6B; // 红色，表示没有分配编号的筒仓
 
-  // 物料数据模拟系统
-  const companyNames = ['建发集团', '国贸集团', '中粮集团', '华润集团', '新希望集团', '正邦集团'];
-  const materialTypes = ['玉米', '小麦', '大豆', '稻谷', '菜籽', '高粱'];
   
   // 公司颜色映射（已弃用，现在使用API返回的companyColor字段）
   const companyColors = {
@@ -789,11 +756,12 @@
 
   // 真实API接口配置
   const API_CONFIG = {
-    BASE_URL: 'http://127.0.0.1:8062',
-    // BASE_URL: 'https://6166qiyy8859.vicp.fun',
+    BASE_URL: 'http://127.0.0.1:8062', // 正式本地API服务
+    // BASE_URL: 'https://6166qiyy8859.vicp.fun', // 远程API服务
     PATH_PREFIX: '/driver-appointment-service',
     ENDPOINTS: {
-      ALL_SILOS: '/api/order-driver/siloStarWarehouseData'
+      ALL_SILOS: '/api/order-driver/siloStarWarehouseData',
+      ALL_WEIGHBRIDGES: '/api/order-driver/weighbridgeData' // 正式地磅数据接口
     }
   };
 
@@ -804,6 +772,11 @@
   
   // 请求去重机制：确保同一时间只有一个API请求
   let ongoingFetchPromise = null;
+
+  // 全局地磅数据缓存
+  let globalWeighbridgeData = null;
+  let lastWeighbridgeFetchTime = 0;
+  let ongoingWeighbridgeFetchPromise = null;
 
   // 从真实API获取所有筒仓数据
   async function fetchAllSilosFromAPI() {
@@ -882,6 +855,414 @@
         showNetworkError();
         throw new Error('网络繁忙，请稍后再试');
       }
+    }
+  }
+
+  // 从真实API获取所有地磅数据
+  async function fetchAllWeighbridgesFromAPI() {
+    const now = Date.now();
+    
+    // 如果有缓存且未过期，直接使用缓存
+    if (globalWeighbridgeData && (now - lastWeighbridgeFetchTime) < CACHE_DURATION) {
+      return globalWeighbridgeData;
+    }
+    
+    // 如果已经有请求在进行中，等待该请求完成
+    if (ongoingWeighbridgeFetchPromise) {
+      console.log('等待进行中的地磅API请求完成...');
+      return await ongoingWeighbridgeFetchPromise;
+    }
+
+    // 创建新的请求Promise
+    ongoingWeighbridgeFetchPromise = performActualWeighbridgeFetch();
+    
+    try {
+      const result = await ongoingWeighbridgeFetchPromise;
+      return result;
+    } finally {
+      // 请求完成后清除Promise引用，允许后续请求
+      ongoingWeighbridgeFetchPromise = null;
+    }
+    
+    async function performActualWeighbridgeFetch() {
+      try {
+        const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_WEIGHBRIDGES}`;
+        console.log('🌐 正在从真实API获取地磅数据:', apiUrl);
+        console.log('📡 数据源: 真实生产环境API (非模拟数据)');
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`地磅API请求失败: ${response.status} ${response.statusText}`);
+        }
+
+        const apiResponse = await response.json();
+        
+        // 适配正式接口返回格式: { success: true, code: 200, message: "SUCCESS", data: {MZDB11: {record}, MZDB21: {record}} }
+        if (apiResponse.success && apiResponse.code === 200 && apiResponse.data) {
+          
+          const weighbridgeList = [];
+          const dataKeys = Object.keys(apiResponse.data);
+          
+          // 检查是否有实际数据
+          if (dataKeys.length === 0) {
+            console.log('地磅API返回空数据对象，当前无地磅数据');
+            globalWeighbridgeData = {
+              weighbridgeList: [],
+              totalCount: 0,
+              timestamp: new Date().toISOString(),
+              dataSource: 'api-empty-data'
+            };
+            
+            lastWeighbridgeFetchTime = now;
+            
+            // 更新场景中所有地磅的显示状态，清空车辆
+            try {
+              updateAllWeighbridgesInScene();
+            } catch (error) {
+              // 静默处理场景更新错误
+            }
+            
+            return globalWeighbridgeData;
+          }
+          
+          // 处理按设备号分组的数据结构
+          dataKeys.forEach(equipmentNo => {
+            const recordData = apiResponse.data[equipmentNo];
+            
+            if (recordData) {
+              // 新格式：每个设备号对应单个对象，不再是数组
+              const record = recordData;
+              
+              // 设备号到地磅编号的映射
+              let weighbridgeId;
+              if (equipmentNo === 'MZDB11') {
+                weighbridgeId = '1号磅'; // 地磅1
+              } else if (equipmentNo === 'MZDB21') {
+                weighbridgeId = '2号磅'; // 地磅2  
+              } else if (equipmentNo === 'MZDB12') {
+                weighbridgeId = '1号磅'; // 地磅1的另一个设备
+              } else {
+                // 其他设备号，尝试从设备号中提取数字
+                const match = equipmentNo.match(/(\d+)$/);
+                weighbridgeId = match ? `${match[1]}号磅` : equipmentNo;
+              }
+              
+              console.log(`📊 设备 ${equipmentNo} -> 地磅 ${weighbridgeId}: 车牌 ${record.vehicleno}, 重量 ${(record.ponderation/1000).toFixed(2)}吨`);
+              
+          // 将分组后的数据转换为前端期望的格式
+            // 将重量从kg转换为吨
+            const weightInTons = record.ponderation ? (record.ponderation / 1000).toFixed(2) : 0;
+            const correctedWeightInTons = record.correctPonderation ? (record.correctPonderation / 1000).toFixed(2) : null;
+            
+            // 判断地磅状态
+            let status = '空闲';
+            if (record.vehicleno && record.ponderation > 0) {
+              status = '称重中';
+            } else if (record.vehicleno) {
+              status = '有车';
+            }
+            
+            const convertedData = {
+              weighbridgeInfo: {
+                id: weighbridgeId, // 使用地磅编号作为ID
+                equipmentNo: equipmentNo, // 保存原始设备号
+                type: '地磅',
+                status: status,
+                currentWeight: parseFloat(weightInTons), // 当前重量（吨）
+                plateNumber: record.vehicleno || '', // 车牌号
+                vehicleType: '货车', // 默认车辆类型
+                arrivalTime: record.regtimeV || record.regtime || '', // 过磅时间
+                driver: record.driver || '', // 司机姓名
+                driverid: record.driverid || '', // 司机身份证
+                warehouseName: record.warehouseName || '', // 库区
+                correctPonderation: correctedWeightInTons, // 纠正重量（吨）
+                frontimg: record.frontimg || '', // 前端车牌图片
+                backimg: record.backimg || '', // 后端车牌图片
+                wholeimg: record.wholeimg || '', // 全景图片
+                createTime: record.createOnV || record.createOn || '', // 记录时间
+                recordId: record.id // 记录ID
+              }
+            };
+            weighbridgeList.push(convertedData);
+            }
+          });
+          
+          // 构造前端期望的数据格式
+          globalWeighbridgeData = {
+            weighbridgeList: weighbridgeList,
+            totalCount: weighbridgeList.length,
+            timestamp: apiResponse.timestamp || new Date().toISOString(),
+            dataSource: 'real-production-api', // 真实生产环境API
+            apiEndpoint: apiUrl
+          };
+          
+          lastWeighbridgeFetchTime = now;
+          console.log(`✅ 成功从真实API获取 ${globalWeighbridgeData.totalCount} 个地磅数据`);
+          console.log(`📊 数据来源: ${globalWeighbridgeData.dataSource} - ${apiUrl}`);
+          
+          // 更新场景中所有地磅的显示状态
+          try {
+            updateAllWeighbridgesInScene();
+          } catch (error) {
+            // 静默处理场景更新错误
+          }
+          
+          return globalWeighbridgeData;
+        } else {
+          console.warn('地磅API返回数据格式错误，返回空数据结构');
+          // 返回空的默认数据结构，不抛出错误
+          globalWeighbridgeData = {
+            weighbridgeList: [],
+            totalCount: 0,
+            timestamp: new Date().toISOString(),
+            dataSource: 'format-error-fallback'
+          };
+          
+          lastWeighbridgeFetchTime = now;
+          
+          // 更新场景中所有地磅的显示状态，清空车辆
+          try {
+            updateAllWeighbridgesInScene();
+          } catch (error) {
+            // 静默处理场景更新错误
+          }
+          
+          return globalWeighbridgeData;
+        }
+      } catch (error) {
+        console.error('获取地磅API数据失败:', error);
+        // 显示网络错误提示
+        showNetworkError();
+        
+        // 返回空的默认数据结构，不抛出错误
+        console.warn('API调用失败，返回空的地磅数据结构');
+        globalWeighbridgeData = {
+          weighbridgeList: [],
+          totalCount: 0,
+          timestamp: new Date().toISOString(),
+          dataSource: 'api-error-fallback'
+        };
+        
+        lastWeighbridgeFetchTime = now;
+        
+        // 更新场景中所有地磅的显示状态，清空车辆
+        try {
+          updateAllWeighbridgesInScene();
+        } catch (error) {
+          // 静默处理场景更新错误
+        }
+        
+        return globalWeighbridgeData;
+      }
+    }
+  }
+
+  // 自动刷新定时器
+  let autoRefreshTimer = null;
+
+  // 启动5秒定时轮询
+  function startAutoRefresh() {
+    // 安全检查：确保scene对象已经初始化
+    if (typeof scene === 'undefined' || !scene) {
+      console.warn('⚠️ Scene对象未初始化，延迟启动自动刷新');
+      setTimeout(startAutoRefresh, 1000); // 1秒后重试
+      return;
+    }
+    
+    // 清除之前的定时器
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
+    }
+    
+    console.log('🚀 启动地磅数据5秒定时轮询');
+    
+    // 立即获取一次数据
+    fetchAllWeighbridgesFromAPI().catch(error => {
+      console.error('初始数据获取失败:', error);
+    });
+    
+    // 每5秒自动刷新一次
+    autoRefreshTimer = setInterval(async () => {
+      try {
+        console.log('🔄 执行5秒定时轮询...');
+        
+        // 强制清除缓存，确保每次都发送真实请求
+        console.log('🗑️ 清除地磅数据缓存，强制发送API请求');
+        globalWeighbridgeData = null;
+        lastWeighbridgeFetchTime = 0;
+        ongoingWeighbridgeFetchPromise = null;
+        
+        await fetchAllWeighbridgesFromAPI();
+        console.log('✅ 地磅数据自动刷新完成 -', new Date().toLocaleTimeString());
+      } catch (error) {
+        console.error('❌ 定时轮询失败:', error);
+      }
+    }, 5000); // 5秒 = 5000毫秒
+  }
+  
+  // 手动强制刷新功能（用于调试）
+  function forceRefreshWeighbridges() {
+    console.log('🔧 手动强制刷新地磅数据...');
+    // 清除所有缓存
+    globalWeighbridgeData = null;
+    lastWeighbridgeFetchTime = 0;
+    ongoingWeighbridgeFetchPromise = null;
+    
+    return fetchAllWeighbridgesFromAPI();
+  }
+  
+  // 暴露到全局作用域供调试使用
+  window.forceRefreshWeighbridges = forceRefreshWeighbridges;
+
+  // 停止自动刷新
+  function stopAutoRefresh() {
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
+      autoRefreshTimer = null;
+      console.log('⏹️ 已停止地磅数据定时轮询');
+    }
+  }
+
+  // 根据地磅编号从全局数据中获取单个地磅数据
+  async function fetchWeighbridgeData(weighbridgeParams) {
+    const { weighbridgeId, weighbridgeNumber, length, width, maxWeight } = weighbridgeParams;
+    
+    // 如果没有编号，直接返回默认数据
+    if (!weighbridgeNumber) {
+      console.log(`地磅 ID ${weighbridgeId} 没有分配编号，使用默认数据`);
+      return {
+        weighbridgeInfo: {
+          id: `未分配编号-${weighbridgeId}`,
+          type: '地磅',
+          length: length,
+          width: width,
+          maxWeight: maxWeight,
+          accuracy: '±20kg',
+          manufacturer: '',
+          installDate: '',
+          lastCalibration: '',
+          calibrationCycle: '',
+          usageCount: 0,
+          status: '空闲',
+          currentWeight: 0,
+          plateNumber: '',
+          vehicleType: '',
+          arrivalTime: ''
+        },
+        timestamp: Date.now(),
+        dataSource: 'no-number-assigned'
+      };
+    }
+    
+    // 获取所有地磅数据
+    let allWeighbridgesData;
+    try {
+      allWeighbridgesData = await fetchAllWeighbridgesFromAPI();
+    } catch (error) {
+      console.warn('获取地磅API数据失败，使用默认数据:', error);
+      // 如果API调用失败，直接返回默认数据，不抛出错误
+      return {
+        weighbridgeInfo: {
+          id: weighbridgeNumber,
+          type: '地磅',
+          length: length,
+          width: width,
+          maxWeight: maxWeight,
+          accuracy: '±20kg',
+          manufacturer: '',
+          installDate: '',
+          lastCalibration: '',
+          calibrationCycle: '',
+          usageCount: 0,
+          status: '离线',
+          currentWeight: 0,
+          plateNumber: '',
+          vehicleType: '',
+          arrivalTime: ''
+        },
+        timestamp: Date.now(),
+        dataSource: 'api-failed-fallback'
+      };
+    }
+    
+    if (!allWeighbridgesData || !allWeighbridgesData.weighbridgeList) {
+      console.warn('地磅API数据格式异常，使用默认数据');
+      // 如果数据格式异常，返回默认数据，不抛出错误
+      return {
+        weighbridgeInfo: {
+          id: weighbridgeNumber,
+          type: '地磅',
+          length: length,
+          width: width,
+          maxWeight: maxWeight,
+          accuracy: '±20kg',
+          manufacturer: '',
+          installDate: '',
+          lastCalibration: '',
+          calibrationCycle: '',
+          usageCount: 0,
+          status: '离线',
+          currentWeight: 0,
+          plateNumber: '',
+          vehicleType: '',
+          arrivalTime: ''
+        },
+        timestamp: Date.now(),
+        dataSource: 'data-format-error-fallback'
+      };
+    }
+
+    // 直接使用传入的地磅编号查找API数据
+    let targetWeighbridge;
+    if (weighbridgeNumber) {
+      // 优先使用传入的编号查找
+      targetWeighbridge = allWeighbridgesData.weighbridgeList.find(wb => wb.weighbridgeInfo.id === weighbridgeNumber);
+      console.log(`使用编号查找地磅: ${weighbridgeNumber}`, targetWeighbridge ? '找到' : '未找到');
+    }
+    
+    // 如果按编号未找到，返回默认数据
+    if (!targetWeighbridge) {
+      console.warn(`API中未找到地磅编号: ${weighbridgeNumber}`);
+      return {
+        weighbridgeInfo: {
+          id: weighbridgeNumber,
+          type: '地磅',
+          length: length,
+          width: width,
+          maxWeight: maxWeight,
+          accuracy: '±20kg',
+          manufacturer: '',
+          installDate: '',
+          lastCalibration: '',
+          calibrationCycle: '',
+          usageCount: 0,
+          status: '空闲',
+          currentWeight: 0,
+          plateNumber: '',
+          vehicleType: '',
+          arrivalTime: ''
+        },
+        timestamp: Date.now(),
+        dataSource: 'api-not-found'
+      };
+    }
+    
+    if (targetWeighbridge) {
+      const actualId = targetWeighbridge.weighbridgeInfo.id;
+      console.log(`成功获取地磅数据: ${actualId}`);
+      
+      return {
+        weighbridgeInfo: targetWeighbridge.weighbridgeInfo,
+        timestamp: Date.now(),
+        dataSource: allWeighbridgesData.dataSource
+      };
     }
   }
 
@@ -1290,9 +1671,9 @@
 
     const idChar = String.fromCharCode(65 + (index % 26));
     const area = length * width;
-    const services = random.subset(['熏蒸', '干燥', '复核堆芯温度']);
-    const temperature = random.float(12, 28).toFixed(1);
-    const phone = random.phone();
+    const services = [];
+    const temperature = '0.0';
+    const phone = '';
     group.userData.whInfo = {id: `#${idChar}`, area, temperature, services, phone};
 
     const labelEl = document.createElement('div');
@@ -1348,31 +1729,17 @@
       
       console.log('成功获取平仓P01数据:', apiData);
     } catch (error) {
-      console.error('获取平仓P01数据失败，使用模拟数据:', error);
-      // 如果API调用失败，使用模拟数据作为备选
-      const 委托客户 = random.pick(['建发', '国贸']);
-      const 货权方 = random.pick(['广东粮油', '中国粮食']);
-      const 货类 = random.pick(['袋装玉米', '袋装小麦', '袋装鱼粉']);
-      const 当前质量 = Math.random() < 0.15 ? '0.0' : random.float(5, 50).toFixed(1);
-      const 入库 = random.dateWithinDays(180);
-      const 出库 = random.dateBetween(入库, new Date());
-      
+      console.error('获取平仓P01数据失败:', error);
+      // API调用失败时，使用空数据
       apiData = {
         siloInfo: {
           id: 'P01',
           type: '平仓P01',
-          maxCapacity: (vol * 0.75).toFixed(1),
-          currentStorage: 当前质量,
-          owner: Math.random() < 0.2 ? 'JF' : undefined
+          maxCapacity: '0.0',
+          currentStorage: '0.0'
         },
-        materialDetails: parseFloat(当前质量) > 0 ? [{
-          company: 委托客户,
-          material: 货类,
-          amount: 当前质量,
-          storageDate: random.fmtDate(入库),
-          companyColor: '#22aa22'
-        }] : [],
-        dataSource: 'fallback-mock'
+        materialDetails: [],
+        dataSource: 'api-failed'
       };
     }
 
@@ -1481,34 +1848,35 @@
       `;
     } else if (type === '地磅') {
       // 地磅悬停信息
-      const maxWeight = obj.userData?.最大载重_t || '-';
       const status = obj.userData?.状态 || '未知';
-      const accuracy = obj.userData?.精度 || '-';
-      const usageCount = obj.userData?.使用次数 || '-';
       const currentWeight = obj.userData?.当前重量_t || 0;
       const plateNumber = obj.userData?.车牌号 || '';
+      
+      // 状态颜色
+      let statusColor = '#666';
+      if (status === '称重中') statusColor = '#FF5722';
+      else if (status === '有车') statusColor = '#FF9800';
+      else if (status === '空闲') statusColor = '#4CAF50';
+      
       const vehicleType = obj.userData?.车辆类型 || '';
       const arrivalTime = obj.userData?.到达时间 || '';
       
       let vehicleInfo = '';
-      if (status === '称重中' && plateNumber) {
+      if ((status === '称重中' || status === '有车') && plateNumber) {
         vehicleInfo = `
           <div style="border-top: 1px solid #ccc; margin-top: 4px; padding-top: 4px;">
-            <div><b>车辆信息</b></div>
-            <div>车牌号: ${plateNumber}</div>
-            <div>车辆类型: ${vehicleType}</div>
-            <div>当前重量: ${currentWeight} 吨</div>
-            <div>到达时间: ${arrivalTime}</div>
+            <div><b>🚛 车辆信息</b></div>
+            <div>车牌号: <span style="color: #1976D2; font-weight: bold;">${plateNumber}</span></div>
+            <div>重量: <span style="color: #FF5722; font-weight: bold;">${currentWeight} 吨</span></div>
+            ${vehicleType ? `<div>类型: ${vehicleType}</div>` : ''}
+            ${arrivalTime ? `<div>时间: ${arrivalTime}</div>` : ''}
           </div>
         `;
       }
       
       infoPanel.innerHTML = `
         <div><b>地磅 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
-        <div>最大载重: ${maxWeight} 吨</div>
-        <div>状态: ${status}</div>
-        <div>精度: ${accuracy}</div>
-        <div>使用次数: ${usageCount} 次</div>
+        <div>状态: <span style="color: ${statusColor}; font-weight: bold;">${status}</span></div>
         ${vehicleInfo}
       `;
     } else {
@@ -1752,31 +2120,59 @@ function getSiloSelectedColor(obj) {
     } else if (ud.type === '地磅') {
       // 处理地磅详情
       let vehicleDetailsHtml = '';
-      if (ud.状态 === '称重中' && ud.车牌号) {
+      if ((ud.状态 === '称重中' || ud.状态 === '有车') && ud.车牌号) {
+        // 显示车辆图片（如果有）
+        let vehicleImagesHtml = '';
+        if (ud.frontimg || ud.backimg || ud.wholeimg) {
+          vehicleImagesHtml = '<div style="margin-top: 8px;"><b>车辆图片:</b><div style="display: flex; gap: 4px; margin-top: 4px;">';
+          if (ud.frontimg) {
+            vehicleImagesHtml += `<a href="${ud.frontimg}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 12px;">前视图</a>`;
+          }
+          if (ud.backimg) {
+            vehicleImagesHtml += `<a href="${ud.backimg}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 12px;">后视图</a>`;
+          }
+          if (ud.wholeimg) {
+            vehicleImagesHtml += `<a href="${ud.wholeimg}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 12px;">全景图</a>`;
+          }
+          vehicleImagesHtml += '</div></div>';
+        }
+        
         vehicleDetailsHtml = `
           <div style="margin-top: 12px; padding: 8px; background: #f5f5f5; border-radius: 4px;">
             <div style="font-weight: 600; margin-bottom: 4px; color: #2196F3;">🚛 当前车辆信息</div>
             <div>车牌号: <span style="font-weight: bold; color: #1976D2;">${ud.车牌号}</span></div>
             <div>车辆类型: ${ud.车辆类型}</div>
             <div>当前重量: <span style="font-weight: bold; color: #FF5722;">${ud.当前重量_t} 吨</span></div>
-            <div>到达时间: ${ud.到达时间}</div>
+            ${ud.correctPonderation ? `<div>纠正重量: <span style="font-weight: bold; color: #4CAF50;">${ud.correctPonderation} 吨</span></div>` : ''}
+            <div>过磅时间: ${ud.到达时间}</div>
+            ${ud.driver ? `<div>司机: ${ud.driver}</div>` : ''}
+            ${ud.warehouseName ? `<div>库区: ${ud.warehouseName}</div>` : ''}
+            ${ud.createTime ? `<div>记录时间: ${ud.createTime}</div>` : ''}
+            ${vehicleImagesHtml}
           </div>
         `;
       }
       
+      // 数据来源信息
+      let dataSourceHtml = '';
+      if (ud.数据来源) {
+        const sourceColor = ud.数据来源 === 'production-api' ? '#4CAF50' : 
+                           ud.数据来源 === 'api-not-found' ? '#FF9800' : '#9E9E9E';
+        const sourceText = ud.数据来源 === 'production-api' ? '接口数据' : 
+                          ud.数据来源 === 'api-not-found' ? '接口无数据' : '默认数据';
+        dataSourceHtml = `
+          <div style="margin-top: 8px; padding: 6px; background: #f9f9f9; border-radius: 4px; border-left: 3px solid ${sourceColor};">
+            <div style="font-size: 12px; color: #666;">数据来源: <span style="color: ${sourceColor}; font-weight: bold;">${sourceText}</span></div>
+            ${ud.更新时间 ? `<div style="font-size: 11px; color: #999;">更新时间: ${new Date(ud.更新时间).toLocaleString()}</div>` : ''}
+          </div>
+        `;
+      }
+
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">地磅详情 ${ud.编号 || '#' + ud.id}</div>
-        <div>长度: ${ud.长度_m} 米</div>
-        <div>宽度: ${ud.宽度_m} 米</div>
-        <div>最大载重: ${ud.最大载重_t} 吨</div>
-        <div>精度: ${ud.精度}</div>
         <div>状态: <span style="color: ${ud.状态 === '称重中' ? '#FF5722' : '#4CAF50'}; font-weight: bold;">${ud.状态}</span></div>
-        <div>制造商: ${ud.制造商}</div>
-        <div>安装日期: ${ud.安装日期}</div>
-        <div>最后校准: ${ud.最后校准}</div>
-        <div>校准周期: ${ud.校准周期}</div>
-        <div>使用次数: ${ud.使用次数} 次</div>
         ${vehicleDetailsHtml}
+        ${dataSourceHtml}
       `;
     } else {
       // 处理平仓P01详情
@@ -2444,6 +2840,12 @@ function getSiloSelectedColor(obj) {
   
   // 调试：检查场景中的星仓对象
   function debugStarSilos() {
+    // 安全检查：确保scene对象存在
+    if (typeof scene === 'undefined' || !scene || typeof scene.traverse !== 'function') {
+      console.warn('⚠️ Scene对象未初始化，无法调试星仓');
+      return [];
+    }
+    
     const starSilos = [];
     scene.traverse((child) => {
       if (child.userData?.type === '星仓') {
@@ -2495,7 +2897,7 @@ function getSiloSelectedColor(obj) {
       console.log(`  第${index + 1}组: [${group.join(', ')}]`);
     });
     
-    // 模拟下一个星仓编号分配
+    // 下一个星仓编号分配
     if (starSiloRowIndex < siloNumberMap.starSilo.length && starSiloColIndex < siloNumberMap.starSilo[starSiloRowIndex].length) {
       const nextNumber = siloNumberMap.starSilo[starSiloRowIndex][starSiloColIndex];
       console.log(`下一个分配的编号: ${nextNumber}`);
@@ -2761,47 +3163,232 @@ function getSiloSelectedColor(obj) {
   // 地磅状态管理
   const weighbridgeStates = new Map(); // 存储每个地磅的状态
   
+  // 根据状态更新地磅颜色
+  function updateWeighbridgeColor(weighbridge) {
+    if (!weighbridge || !weighbridge.userData) return;
+    
+    const status = weighbridge.userData.状态;
+    let color;
+    
+    switch (status) {
+      case '称重中':
+        color = 0xFF5722; // 红色 - 正在称重
+        break;
+      case '有车':
+        color = 0xFF9800; // 橙色 - 有车辆但未称重
+        break;
+      case '空闲':
+        color = 0x4CAF50; // 绿色 - 空闲状态
+        break;
+      default:
+        color = lineColors.weighbridge; // 默认颜色
+    }
+    
+    setWeighbridgeColor(weighbridge, color);
+    console.log(`🎨 地磅 ${weighbridge.userData.编号} 状态: ${status}, 颜色更新为: 0x${color.toString(16)}`);
+  }
+  
   // 车辆称重模拟函数
   function simulateVehicleWeighing(weighbridge) {
     const vehicleTypes = ['truck', 'car'];
-    const vehicleType = vehicleTypes[Math.floor(Math.random() * vehicleTypes.length)];
-    
-    // 根据车辆类型设置重量范围
-    let weight;
-    if (vehicleType === 'truck') {
-      weight = Math.floor(Math.random() * 40 + 20); // 20-60吨
-    } else {
-      weight = Math.floor(Math.random() * 3 + 1); // 1-4吨
-    }
+    const plateNumbers = ['京A12345', '沪B67890', '粤C11111', '川D22222', '鲁E33333'];
     
     return {
-      type: vehicleType,
-      weight: weight,
-      plateNumber: generatePlateNumber(),
+      type: vehicleTypes[Math.floor(Math.random() * vehicleTypes.length)],
+      plateNumber: plateNumbers[Math.floor(Math.random() * plateNumbers.length)],
+      weight: Math.round((Math.random() * 30 + 20) * 100) / 100, // 20-50吨
+      driver: '模拟司机',
       arrivalTime: new Date().toLocaleTimeString()
     };
   }
-  
-  // 生成车牌号
-  function generatePlateNumber() {
-    const provinces = ['京', '津', '沪', '渝', '冀', '豫', '云', '辽', '黑', '湘', '皖', '鲁', '新', '苏', '浙', '赣', '鄂', '桂', '甘', '晋', '蒙', '陕', '吉', '闽', '贵', '粤', '青', '藏', '川', '宁', '琼'];
-    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    const numbers = '0123456789';
+
+  // 更新场景中所有地磅的显示状态
+  function updateAllWeighbridgesInScene() {
+    // 尝试多种方式获取scene对象
+    const sceneRef = scene || window.globalScene;
     
-    const province = provinces[Math.floor(Math.random() * provinces.length)];
-    const letter = letters[Math.floor(Math.random() * letters.length)];
-    let plateNum = province + letter;
-    
-    for (let i = 0; i < 5; i++) {
-      if (Math.random() < 0.7) {
-        plateNum += numbers[Math.floor(Math.random() * numbers.length)];
-      } else {
-        plateNum += letters[Math.floor(Math.random() * letters.length)];
-      }
+    // 安全检查：确保scene对象存在且有traverse方法
+    if (typeof sceneRef === 'undefined' || !sceneRef || typeof sceneRef.traverse !== 'function') {
+      console.warn('⚠️ Scene对象未初始化，跳过地磅更新');
+      console.warn('调试信息:', {
+        sceneType: typeof scene,
+        sceneExists: !!scene,
+        windowSceneType: typeof window.globalScene,
+        windowSceneExists: !!window.globalScene,
+        sceneRefType: typeof sceneRef,
+        sceneRefExists: !!sceneRef
+      });
+      return;
     }
     
-    return plateNum;
+    if (!globalWeighbridgeData || !globalWeighbridgeData.weighbridgeList) {
+      return;
+    }
+    
+    // 如果API返回空数据，清空所有地磅的车辆
+    if (globalWeighbridgeData.weighbridgeList.length === 0) {
+      console.log('🧹 API返回空数据，清空所有地磅车辆');
+      
+      // 使用已验证的sceneRef对象
+      sceneRef.traverse((object) => {
+        if (object.userData && object.userData.type === '地磅') {
+          const weighbridgeId = object.userData.编号 || object.userData.id;
+          const state = weighbridgeStates.get(weighbridgeId);
+          
+          if (state && state.hasVehicle) {
+            console.log(`🚫 清空地磅 ${weighbridgeId} 的车辆`);
+            removeVehicleFromWeighbridge(object, true); // API驱动的清空
+          }
+        }
+      });
+      return;
+    }
+    
+    // 遍历场景中的所有对象，找到地磅并更新
+    sceneRef.traverse((object) => {
+      if (object.userData && object.userData.type === '地磅') {
+        const weighbridgeId = object.userData.编号 || object.userData.id;
+        
+        // 在API数据中查找对应的地磅数据
+        const apiData = globalWeighbridgeData.weighbridgeList.find(wb => 
+          wb.weighbridgeInfo.id === weighbridgeId
+        );
+        
+        if (apiData) {
+          const { weighbridgeInfo } = apiData;
+          
+          // 获取地磅状态管理器
+          const state = weighbridgeStates.get(weighbridgeId);
+          if (!state) {
+            console.warn(`⚠️ 地磅 ${weighbridgeId} 状态管理器不存在`);
+            return;
+          }
+          
+          // 检查状态变化，决定是否需要添加/移除车辆
+          const newStatus = weighbridgeInfo.status || '空闲';
+          const hasVehicleInAPI = (newStatus === '称重中' || newStatus === '有车') && weighbridgeInfo.plateNumber;
+          
+          // 更新地磅的userData
+          Object.assign(object.userData, {
+            状态: newStatus,
+            当前重量_t: weighbridgeInfo.currentWeight || 0,
+            车牌号: weighbridgeInfo.plateNumber || '',
+            车辆类型: weighbridgeInfo.vehicleType || '',
+            到达时间: weighbridgeInfo.arrivalTime || '',
+            driver: weighbridgeInfo.driver || '',
+            driverid: weighbridgeInfo.driverid || '',
+            warehouseName: weighbridgeInfo.warehouseName || '',
+            correctPonderation: weighbridgeInfo.correctPonderation || null,
+            frontimg: weighbridgeInfo.frontimg || '',
+            backimg: weighbridgeInfo.backimg || '',
+            wholeimg: weighbridgeInfo.wholeimg || '',
+            createTime: weighbridgeInfo.createTime || '',
+            recordId: weighbridgeInfo.recordId || '',
+            数据来源: 'production-api',
+            更新时间: Date.now()
+          });
+          
+          // 根据API数据同步车辆3D模型
+          if (hasVehicleInAPI && !state.hasVehicle) {
+            // API显示有车，但3D场景中没有车辆 -> 添加车辆
+            console.log(`🚗 地磅 ${weighbridgeId} 添加车辆: ${weighbridgeInfo.plateNumber}`);
+            addVehicleToWeighbridgeFromAPI(object, weighbridgeInfo);
+          } else if (!hasVehicleInAPI && state.hasVehicle) {
+            // API显示无车，但3D场景中有车辆 -> 移除车辆
+            console.log(`🚫 地磅 ${weighbridgeId} 移除车辆`);
+            removeVehicleFromWeighbridge(object, true); // API驱动的清空
+          } else if (hasVehicleInAPI && state.hasVehicle) {
+            // 都有车辆，更新车辆信息
+            console.log(`🔄 地磅 ${weighbridgeId} 更新车辆信息: ${weighbridgeInfo.plateNumber}`);
+            updateVehicleInfo(state, weighbridgeInfo);
+          }
+          
+          // 更新地磅颜色
+          updateWeighbridgeColor(object);
+          
+          console.log(`🔄 地磅 ${weighbridgeId} 数据已更新: ${newStatus}, 重量: ${weighbridgeInfo.currentWeight}吨, 车牌: ${weighbridgeInfo.plateNumber}`);
+        } else {
+          // API数据中没有找到对应的地磅数据，清空车辆
+          const state = weighbridgeStates.get(weighbridgeId);
+          if (state && state.hasVehicle) {
+            console.log(`🚫 API中未找到地磅 ${weighbridgeId} 数据，清空车辆`);
+            removeVehicleFromWeighbridge(object, true); // API驱动的清空
+          }
+        }
+      }
+    });
   }
+  
+  // 根据API数据添加车辆到地磅
+  function addVehicleToWeighbridgeFromAPI(weighbridge, weighbridgeInfo) {
+    const weighbridgeId = weighbridge.userData.编号 || weighbridge.userData.id;
+    const state = weighbridgeStates.get(weighbridgeId);
+    
+    if (state.hasVehicle) {
+      console.log(`⚠️ 地磅 ${weighbridgeId} 已有车辆，跳过添加`);
+      return;
+    }
+    
+    // 创建车辆信息对象
+    const vehicleInfo = {
+      type: weighbridgeInfo.vehicleType === '小轿车' ? 'car' : 'truck',
+      plateNumber: weighbridgeInfo.plateNumber || '',
+      weight: weighbridgeInfo.currentWeight || 0,
+      driver: weighbridgeInfo.driver || '',
+      arrivalTime: weighbridgeInfo.arrivalTime || ''
+    };
+    
+    // 创建车辆3D模型
+    const vehicleModel = buildVehicle(vehicleInfo.type);
+    
+    // 设置车辆位置（在地磅上）
+    const weighbridgePos = weighbridge.position;
+    const weighbridgeRotation = weighbridge.rotation.y;
+    
+    vehicleModel.position.set(
+      weighbridgePos.x,
+      weighbridgePos.y + 0.4, // 稍微抬高避免z-fighting
+      weighbridgePos.z
+    );
+    vehicleModel.rotation.y = weighbridgeRotation;
+    vehicleModel.scale.set(1, 1, 1);  // 车辆放大5倍
+    
+    // 添加车辆标识
+    vehicleModel.userData = {
+      type: 'vehicle',
+      weighbridgeId: weighbridgeId,
+      plateNumber: vehicleInfo.plateNumber,
+      vehicleType: vehicleInfo.type
+    };
+    
+    // 添加到场景
+    if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') {
+      scene.add(vehicleModel);
+    } else {
+      console.warn('⚠️ Scene对象未初始化，无法添加车辆模型');
+      return; // 如果无法添加到场景，直接返回
+    }
+    
+    // 更新状态
+    state.hasVehicle = true;
+    state.vehicle = vehicleInfo;
+    state.vehicleModel = vehicleModel;
+    state.currentWeight = vehicleInfo.weight;
+    state.isWeighing = true;
+    
+    console.log(`✅ 车辆已添加到地磅 ${weighbridgeId}: ${vehicleInfo.plateNumber}`);
+  }
+  
+  // 更新车辆信息
+  function updateVehicleInfo(state, weighbridgeInfo) {
+    if (state.vehicle) {
+      state.vehicle.plateNumber = weighbridgeInfo.plateNumber || '';
+      state.vehicle.weight = weighbridgeInfo.currentWeight || 0;
+      state.vehicle.driver = weighbridgeInfo.driver || '';
+      state.currentWeight = weighbridgeInfo.currentWeight || 0;
+    }
+  }
+  
 
   // 地磅放置函数
   async function placeWeighbridge(x, z, id, options = {}) {
@@ -2824,26 +3411,72 @@ function getSiloSelectedColor(obj) {
     };
     weighbridgeStates.set(id, weighbridgeState);
 
-    // 设置地磅信息
+    // 立即创建默认地磅数据，确保地磅能立即渲染
+    let apiData = {
+      weighbridgeInfo: {
+        id: id,
+        type: '地磅',
+        status: '空闲',
+        currentWeight: 0,
+        plateNumber: '',
+        vehicleType: '',
+        arrivalTime: ''
+      },
+      timestamp: Date.now(),
+      dataSource: 'immediate-default'
+    };
+
+    // 异步获取API数据更新地磅信息（不阻塞渲染）
+    fetchWeighbridgeData({
+      weighbridgeId: id,
+      weighbridgeNumber: id
+    }).then(fetchedData => {
+      console.log(`✅ 地磅 ${id} API数据获取成功，更新信息`);
+      // 更新地磅的userData
+      if (group && group.userData) {
+        const { weighbridgeInfo } = fetchedData;
+        Object.assign(group.userData, {
+          状态: weighbridgeInfo.status || '空闲',
+          当前重量_t: weighbridgeInfo.currentWeight || 0,
+          车牌号: weighbridgeInfo.plateNumber || '',
+          车辆类型: weighbridgeInfo.vehicleType || '',
+          到达时间: weighbridgeInfo.arrivalTime || '',
+          driver: weighbridgeInfo.driver || '',
+          driverid: weighbridgeInfo.driverid || '',
+          warehouseName: weighbridgeInfo.warehouseName || '',
+          correctPonderation: weighbridgeInfo.correctPonderation || null,
+          frontimg: weighbridgeInfo.frontimg || '',
+          backimg: weighbridgeInfo.backimg || '',
+          wholeimg: weighbridgeInfo.wholeimg || '',
+          createTime: weighbridgeInfo.createTime || '',
+          recordId: weighbridgeInfo.recordId || '',
+          数据来源: fetchedData.dataSource,
+          更新时间: fetchedData.timestamp
+        });
+        
+        // 根据状态更新地磅颜色
+        updateWeighbridgeColor(group);
+      }
+    }).catch(error => {
+      console.warn(`⚠️ 地磅 ${id} API数据获取失败，使用默认数据:`, error);
+    });
+
+    const { weighbridgeInfo } = apiData;
+
+    // 设置地磅信息（使用接口返回的数据）
     group.userData = {
       type: '地磅',
-      id: id,
-      编号: id,
-      长度_m: length,
-      宽度_m: width,
-      最大载重_t: 80, // 标准地磅载重
-      状态: '空闲',
-      精度: '±20kg',
-      制造商: '某某衡器公司',
-      安装日期: '2023-01-15',
-      最后校准: '2024-10-01',
-      校准周期: '6个月',
-      使用次数: Math.floor(Math.random() * 5000) + 1000,
-      当前重量_t: 0,
-      车牌号: '',
-      车辆类型: '',
-      到达时间: '',
-      hasMaterialData: true // 地磅总是有基本数据
+      id: weighbridgeInfo.id,
+      编号: weighbridgeInfo.id,
+      状态: weighbridgeInfo.status || '空闲',
+      当前重量_t: weighbridgeInfo.currentWeight || 0,
+      车牌号: weighbridgeInfo.plateNumber || '',
+      车辆类型: weighbridgeInfo.vehicleType || '',
+      到达时间: weighbridgeInfo.arrivalTime || '',
+      hasMaterialData: true, // 地磅总是有基本数据
+      // 添加接口数据来源标识
+      数据来源: apiData.dataSource,
+      更新时间: apiData.timestamp
     };
 
     // 设置位置和旋转
@@ -2871,7 +3504,7 @@ function getSiloSelectedColor(obj) {
 
   // 车辆上磅函数
   function addVehicleToWeighbridge(weighbridge) {
-    const weighbridgeId = weighbridge.userData.id;
+    const weighbridgeId = weighbridge.userData.编号 || weighbridge.userData.id;
     const state = weighbridgeStates.get(weighbridgeId);
     
     if (state.hasVehicle) return; // 已有车辆
@@ -2896,7 +3529,12 @@ function getSiloSelectedColor(obj) {
     vehicleModel.scale.set(5, 5, 5);  // 车辆放大5倍
     
     // 添加到场景
-    scene.add(vehicleModel);
+    if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') {
+      scene.add(vehicleModel);
+    } else {
+      console.warn('⚠️ Scene对象未初始化，无法添加车辆模型');
+      return; // 如果无法添加到场景，直接返回
+    }
     
     // 更新状态
     state.hasVehicle = true;
@@ -2921,15 +3559,26 @@ function getSiloSelectedColor(obj) {
   }
   
   // 车辆下磅函数
-  function removeVehicleFromWeighbridge(weighbridge) {
-    const weighbridgeId = weighbridge.userData.id;
+  function removeVehicleFromWeighbridge(weighbridge, isApiDriven = false) {
+    const weighbridgeId = weighbridge.userData.编号 || weighbridge.userData.id;
     const state = weighbridgeStates.get(weighbridgeId);
+    
+    // 安全检查：确保state存在
+    if (!state) {
+      console.warn(`⚠️ 地磅 ${weighbridgeId} 状态管理器不存在，无法移除车辆`);
+      return;
+    }
     
     if (!state.hasVehicle) return; // 没有车辆
     
     // 移除车辆模型
     if (state.vehicleModel) {
-      scene.remove(state.vehicleModel);
+      // 安全检查scene对象
+      if (typeof scene !== 'undefined' && scene && typeof scene.remove === 'function') {
+        scene.remove(state.vehicleModel);
+      } else {
+        console.warn('⚠️ Scene对象未初始化，无法移除车辆模型');
+      }
     }
     
     // 重置状态
@@ -2947,14 +3596,16 @@ function getSiloSelectedColor(obj) {
     weighbridge.userData.到达时间 = '';
     weighbridge.userData.使用次数++;
     
-    console.log(`车辆下磅: ${weighbridgeId}`);
+    console.log(`车辆下磅: ${weighbridgeId}${isApiDriven ? ' (API驱动)' : ' (模拟驱动)'}`);
     
-    // 设置下一辆车上磅的定时器
-    setTimeout(() => {
-      if (Math.random() < 0.8) { // 80%概率有下一辆车
-        addVehicleToWeighbridge(weighbridge);
-      }
-    }, Math.random() * 20000 + 5000); // 5-25秒后可能有下一辆车
+    // 只有在非API驱动的情况下才设置下一辆车上磅的定时器
+    if (!isApiDriven) {
+      setTimeout(() => {
+        if (Math.random() < 0.8) { // 80%概率有下一辆车
+          addVehicleToWeighbridge(weighbridge);
+        }
+      }, Math.random() * 20000 + 5000); // 5-25秒后可能有下一辆车
+    }
   }
 
   // 地磅颜色设置函数
@@ -3286,23 +3937,31 @@ function getSiloSelectedColor(obj) {
 
       await Promise.all(starSiloPromises);
 
-      // 添加地磅
-      console.log('开始添加地磅...');
-      const weighbridgePromises = [
-        placeWeighbridge(-80, 50, '1号磅', { 
-          length: 50, 
-          width: 58, 
-          rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
-        }),
-        placeWeighbridge(10, 50, '2号磅', { 
-          length: 50, 
-          width: 58, 
-          rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
-        })
-      ];
+      // 添加地磅 - 立即渲染，不等待任何条件
+      console.log('🚀 开始立即添加地磅...');
       
-      await Promise.all(weighbridgePromises);
-      console.log('地磅添加完成');
+      // 立即创建地磅，不使用await等待，确保立即渲染
+      placeWeighbridge(-60, -40, '1号磅', { 
+        length: 20, 
+        width: 20, 
+        rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
+      }).then(() => {
+        console.log('✅ 1号磅渲染完成');
+      }).catch(error => {
+        console.error('❌ 1号磅渲染失败:', error);
+      });
+      
+      placeWeighbridge(10, 50, '2号磅', { 
+        length: 20, 
+        width: 20, 
+        rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
+      }).then(() => {
+        console.log('✅ 2号磅渲染完成');
+      }).catch(error => {
+        console.error('❌ 2号磅渲染失败:', error);
+      });
+      
+      console.log('🎯 地磅立即渲染启动完成（不等待API数据）');
 
     } catch (error) {
       console.error('初始化失败:', error);
@@ -3314,6 +3973,10 @@ function getSiloSelectedColor(obj) {
 
     fitCameraToYard(yardL, yardW, wH + rH, 1.0);
     updateCompass();
+    
+    // 初始化完成后启动自动刷新
+    console.log('🎯 场景初始化完成，启动地磅数据自动刷新');
+    startAutoRefresh();
   }
 
   function animate() {
