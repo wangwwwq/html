@@ -3828,6 +3828,8 @@ function getSiloSelectedColor(obj) {
     const spacingInter = options.spacingInter ?? 10;
     const rowGroupCounts = options.rowGroupCounts ?? [1, 1, 2, 4];
     const roadSouthMargin = options.roadSouthMargin ?? 5;
+    const xOffset = options.xOffset ?? 0; // X方向偏移量
+    const zOffset = options.zOffset ?? 0; // Z方向偏移量
 
     const volumeM3 = capacityTons / densityTPerM3;
     const radius = options.radius ?? Math.sqrt(volumeM3 / (Math.PI * height));
@@ -3844,14 +3846,14 @@ function getSiloSelectedColor(obj) {
     const xEast = originalXEast;
     const corridor = 20;
 
-    let zStart = -(roadSouthMargin + groupDepth / 2);
+    let zStart = -(roadSouthMargin + groupDepth / 2) + zOffset; // 应用Z方向偏移量
 
     // 收集所有筒仓组创建的Promise
     const groupPromises = [];
 
     for (let row = 0; row < rowGroupCounts.length; row++) {
       const groupsInRow = rowGroupCounts[row];
-      let xStart = xEast + corridor + (groupWidth / 2);
+      let xStart = xEast + corridor + (groupWidth / 2) + xOffset; // 应用X方向偏移量
 
       for (let gi = 0; gi < groupsInRow; gi++) {
         const cx = xStart + gi * (groupWidth + spacingInter);
@@ -3904,7 +3906,9 @@ function getSiloSelectedColor(obj) {
         spacingIntra: 0.5,
         spacingInter: 1.5,
         rowGroupCounts: [2, 2, 2, 1, 1], // 筒仓
-        roadSouthMargin: 15 // 减少南侧边距，更好地利用空间
+        roadSouthMargin: 15, // 减少南侧边距，更好地利用空间
+        xOffset: 0, // X方向偏移量（正值向东，负值向西）
+        zOffset: 0  // Z方向偏移量（正值向北，负值向南）
       });
 
       // 并行创建所有星仓
