@@ -1687,6 +1687,49 @@
     return group;
   }
 
+  // 保安室构建函数
+  function buildSecurityRoom(centerX, centerZ, {length = 10, width = 8, height = 4, roofHeight = 1.5} = {}) {
+    const group = new THREE.Group();
+    group.position.set(centerX, 0, centerZ);
+
+    // 墙体
+    const wall = createWireframe(new THREE.BoxGeometry(length, height, width), lineColors.wall);
+    wall.position.set(0, height / 2, 0);
+    wall.userData = {type: '保安室', 长: length, 宽: width, 高: height, 功能: '安保值班'};
+    group.add(wall);
+
+    // 屋顶
+    const hx = length / 2, hz = width / 2, yTop = height, yRidge = height + roofHeight;
+    const roofColor = lineColors.roof;
+    const roofLines = [];
+    roofLines.push([[-hx, yTop, -hz], [0, yRidge, -hz], [hx, yTop, -hz], [-hx, yTop, -hz]]);
+    roofLines.push([[-hx, yTop, hz], [0, yRidge, hz], [hx, yTop, hz], [-hx, yTop, hz]]);
+    roofLines.push([[-hx, yRidge, 0], [hx, yRidge, 0]]);
+    roofLines.push([[-hx, yTop, -hz], [-hx, yTop, hz]]);
+    roofLines.push([[hx, yTop, -hz], [hx, yTop, hz]]);
+
+    for (const pts of roofLines) {
+      const g = new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+      const line = new THREE.Line(g, new THREE.LineBasicMaterial({color: roofColor}));
+      group.add(line);
+    }
+
+    // 标签
+    const labelEl = document.createElement('div');
+    labelEl.className = 'whLabel';
+    labelEl.textContent = '保安室';
+    labelEl.style.color = '#4169E1';
+    labelEl.style.fontSize = '8px'; // 设置更小的字体
+    labelEl.style.padding = '1px 3px'; // 进一步减小内边距
+    const labelObj = new CSS2DObject(labelEl);
+    labelObj.position.set(0, height + roofHeight + 5, 0); // 提高标签位置
+    group.add(labelObj);
+
+
+    scene.add(group);
+    return group;
+  }
+
   document.addEventListener('click', (e) => {
     // 不处理canvas区域的点击，避免与Three.js交互冲突
     if (e.target === renderer.domElement || renderer.domElement.contains(e.target)) return;
@@ -3972,6 +4015,17 @@ function getSiloSelectedColor(obj) {
       });
       
       console.log('🎯 地磅立即渲染启动完成（不等待API数据）');
+
+      // 添加保安室 - 放置在园区南侧入口附近
+      const securityRoomX = -80; // 园区中央X位置
+      const securityRoomZ = -(yardW / 2 - 120); // 南侧路边，距离边界10米（往南为负值）
+      buildSecurityRoom(securityRoomX, securityRoomZ, {
+        length: 10,
+        width: 8,
+        height: 4,
+        roofHeight: 1.5
+      });
+      console.log('✅ 保安室创建完成');
 
     } catch (error) {
       console.error('初始化失败:', error);
