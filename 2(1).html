@@ -447,7 +447,7 @@
   <div class="action-bar">
     <button id="btnLfs" class="btn">查看LFS订单</button>
     <button id="btnTms" class="btn">查看相关TMS运输订单</button>
-    <button id="btnFee" class="btn">查看平仓P01仓储费用</button>
+    <button id="btnFee" class="btn">查看平仓仓储费用</button>
     <button id="btnMonitor" class="btn">查看监控</button>
   </div>
 </div>
@@ -1317,8 +1317,8 @@
       const actualId = targetSilo.siloInfo.id;
       console.log(`成功找到筒仓数据: ${actualId}`, targetSilo);
       
-      // 特殊处理：P01或以P开头的数据实际上是平仓数据
-      const actualType = (actualId === 'P01' || actualId.startsWith('P')) ? '平仓P01' : targetSilo.siloInfo.type;
+      // 特殊处理：P01、P02、P03或以P开头的数据实际上是平仓数据
+      const actualType = (actualId === 'P01' || actualId === 'P02' || actualId === 'P03' || actualId.startsWith('P')) ? `平仓${actualId}` : targetSilo.siloInfo.type;
       
       if (actualId === 'P01' || actualId.startsWith('P')) {
         console.log(`检测到平仓数据: ${actualId}, 类型从 "${targetSilo.siloInfo.type}" 修正为 "${actualType}"`);
@@ -1506,7 +1506,7 @@
 
   // 显示监控面板
   function showMonitorPanel(siloData) {
-    const siloType = siloData.type === '星仓' ? '★星仓' : '筒仓';
+    const siloType = '筒仓'; // 星仓已屏蔽
     const monitorTitle = monitorPanel.querySelector('.monitor-title');
     monitorTitle.textContent = `${siloType} #${siloData.id} 监控播放`;
     
@@ -1748,78 +1748,90 @@
     const center = new THREE.Vector3();
     warehouseGroup.getWorldPosition(center);
     const cx = center.x, cz = center.z;
-
-    // 只生成一个平仓P01在仓库中心
-    const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
-    stack.position.set(cx, sy / 2, cz);
-    stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
-    const vol = (sx * sy * sz).toFixed(0);
-    const id = stackIdSeq++;
     const whInfo = warehouseGroup.userData?.whInfo || null;
 
-    // 从API获取P01平仓的真实数据
-    let apiData;
-    try {
-      apiData = await fetchSiloAndMaterialData({
-        siloId: id,
-        siloNumber: 'P01', // 明确指定为P01，触发接口数据获取
-        siloType: '平仓P01',
-        radius: Math.max(sx, sz) / 2,
-        height: sy,
-        volume: vol,
-        capacity: (vol * 0.75).toFixed(1) // 假设密度0.75吨/立方米
-      });
+    // 生成3个平仓：P01、P02、P03
+    const stackPositions = [
+      // { x: cx - sx * 0.8, z: cz, number: 'P01' },           // 左侧
+      { x: cx, z: cz, number: 'P02' },                      // 中心
+      // { x: cx + sx * 0.8, z: cz, number: 'P03' }           // 右侧
+    ];
+
+    for (let i = 0; i < stackPositions.length; i++) {
+      const position = stackPositions[i];
+      const stackNumber = position.number;
       
-      console.log('成功获取平仓P01数据:', apiData);
-    } catch (error) {
-      console.error('获取平仓P01数据失败:', error);
-      // API调用失败时，使用空数据
-      apiData = {
-        siloInfo: {
-          id: 'P01',
-          type: '平仓P01',
-          maxCapacity: '0.0',
-          currentStorage: '0.0'
-        },
-        materialDetails: [],
-        dataSource: 'api-failed'
+      // 创建平仓几何体
+      const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
+      stack.position.set(position.x, sy / 2, position.z);
+      stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
+      const vol = (sx * sy * sz).toFixed(0);
+      const id = stackIdSeq++;
+
+      // 从API获取平仓的真实数据
+      let apiData;
+      try {
+        apiData = await fetchSiloAndMaterialData({
+          siloId: id,
+          siloNumber: stackNumber, // 使用对应的平仓编号
+          siloType: `平仓${stackNumber}`,
+          radius: Math.max(sx, sz) / 2,
+          height: sy,
+          volume: vol,
+          capacity: (vol * 0.75).toFixed(1) // 假设密度0.75吨/立方米
+        });
+        
+        console.log(`成功获取${stackNumber}数据:`, apiData);
+      } catch (error) {
+        console.error(`获取${stackNumber}数据失败:`, error);
+        // API调用失败时，使用空数据
+        apiData = {
+          siloInfo: {
+            id: stackNumber,
+            type: `平仓${stackNumber}`,
+            maxCapacity: '0.0',
+            currentStorage: '0.0'
+          },
+          materialDetails: [],
+          dataSource: 'api-failed'
+        };
+      }
+
+      const { siloInfo, materialDetails } = apiData;
+      const activeMaterials = Array.isArray(materialDetails)
+        ? materialDetails.filter(m => Number.isFinite(toNumber(m?.amount)) && Math.abs(toNumber(m.amount)) > 1e-6)
+        : [];
+      const hasMaterialData = activeMaterials.length > 0;
+
+      stack.userData = {
+        type: siloInfo.type || `平仓${stackNumber}`,
+        id: siloInfo.id || stackNumber,
+        编号: siloInfo.id || stackNumber,
+        owner: hasMaterialData ? siloInfo.owner : undefined,
+        仓库序号: index + 1,
+        体积_m3: vol,
+        尺寸_m: `${sx}×${sy}×${sz}`,
+        最大容量_t: siloInfo.maxCapacity,
+        当前储量_t: siloInfo.currentStorage,
+        物料详情: hasMaterialData ? activeMaterials : [],
+        hasMaterialData: hasMaterialData,
+        // 添加接口数据来源标识
+        数据来源: apiData.dataSource,
+        更新时间: apiData.timestamp,
+        whInfo
       };
+
+      // 根据是否有物料数据设置颜色
+      const baseColor = hasMaterialData && siloInfo.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
+      setStackColor(stack, baseColor);
+
+      scene.add(stack);
+      registerPickable(stack);
+
+      // 所有平仓都注册为可交互对象，无论是否有物料数据
+      registerInteractive(stack);
+      console.log(`${stackNumber}注册为交互对象:`, stack.userData.type, stack.userData.id, '交互对象总数:', interactives.length);
     }
-
-    const { siloInfo, materialDetails } = apiData;
-    const activeMaterials = Array.isArray(materialDetails)
-      ? materialDetails.filter(m => Number.isFinite(toNumber(m?.amount)) && Math.abs(toNumber(m.amount)) > 1e-6)
-      : [];
-    const hasMaterialData = activeMaterials.length > 0;
-
-    stack.userData = {
-      type: siloInfo.type || '平仓P01',
-      id: siloInfo.id || `P${String(id).padStart(2, '0')}`,
-      编号: siloInfo.id || `P${String(id).padStart(2, '0')}`,
-      owner: hasMaterialData ? siloInfo.owner : undefined,
-      仓库序号: index + 1,
-      体积_m3: vol,
-      尺寸_m: `${sx}×${sy}×${sz}`,
-      最大容量_t: siloInfo.maxCapacity,
-      当前储量_t: siloInfo.currentStorage,
-      物料详情: hasMaterialData ? activeMaterials : [],
-      hasMaterialData: hasMaterialData,
-      // 添加接口数据来源标识
-      数据来源: apiData.dataSource,
-      更新时间: apiData.timestamp,
-      whInfo
-    };
-
-    // 根据是否有物料数据设置颜色
-    const baseColor = hasMaterialData && siloInfo.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
-    setStackColor(stack, baseColor);
-
-    scene.add(stack);
-    registerPickable(stack);
-
-    // 所有平仓P01都注册为可交互对象，无论是否有物料数据
-    registerInteractive(stack);
-    console.log('平仓P01注册为交互对象:', stack.userData.type, stack.userData.id, '交互对象总数:', interactives.length);
   }
 
   // 交互逻辑
@@ -1835,11 +1847,11 @@
       // 检查当前对象是否在可交互集合中
       if (interactiveSet.has(current)) {
         const userData = current.userData;
-        if (userData?.type === '筒仓' || userData?.type === '星仓') {
-          // 筒仓/星仓无论是否有数据都可以悬停显示名称
+        if (userData?.type === '筒仓') {
+          // 筒仓无论是否有数据都可以悬停显示名称
           return current;
-        } else if (userData?.type === '平仓P01') {
-          // 所有平仓P01都可以交互，无论是否有物料数据
+        } else if (userData?.type?.startsWith('平仓P')) {
+          // 所有平仓都可以交互，无论是否有物料数据
           return current;
         } else if (userData?.type === '地磅') {
           // 地磅可以交互
@@ -1856,11 +1868,11 @@
     // 移除权限检查，所有对象都可以显示悬停信息
 
     const type = obj.userData?.type;
-    if (type === '筒仓' || type === '星仓') {
+    if (type === '筒仓') {
       const cap = obj.userData?.最大容量_t || '-';
       const current = obj.userData?.当前储量_t || '0';
       const materials = obj.userData?.物料详情 || [];
-      const label = type === '星仓' ? '★星仓' : '筒仓';
+      const label = '筒仓';
       
       let materialInfo = '';
       if (materials.length > 0) {
@@ -1923,7 +1935,7 @@
         ${vehicleInfo}
       `;
     } else {
-      // 平仓P01悬停信息
+      // 平仓悬停信息
       const v = obj.userData?.体积_m3;
       const cap = obj.userData?.最大容量_t || '-';
       const current = obj.userData?.当前储量_t || '0';
@@ -1949,7 +1961,7 @@
       }
       
       infoPanel.innerHTML = `
-        <div><b>平仓P01 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
+        <div><b>${obj.userData?.type || '平仓'} ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
         <div>体积: ${v} m³</div>
         <div>容量: ${cap} 吨</div>
         <div>当前: ${current} 吨</div>
@@ -1985,8 +1997,8 @@ function setStackColor(obj, color) {
 
     const type = obj.userData?.type;
     const isCylindricalSilo = type === '筒仓';
-    const isStarSilo = type === '星仓';
-    const isSilo = isCylindricalSilo || isStarSilo;
+    const isStarSilo = false; // 星仓已屏蔽
+    const isSilo = isCylindricalSilo;
     const hasMaterialData = obj.userData?.hasMaterialData === true;
 
     let targetColor = color;
@@ -2002,7 +2014,7 @@ function setStackColor(obj, color) {
     }
 
     if (isSilo) {
-      // 为筒仓/星仓设置颜色 - 同步主体与线框材质
+      // 为筒仓设置颜色 - 同步主体与线框材质
       const isClickable = hasMaterialData; // 有物料数据的筒仓可以点击
       
       obj.children.forEach(child => {
@@ -2025,7 +2037,7 @@ function setStackColor(obj, color) {
         }
       });
     } else if (obj.material) {
-      // 为平仓P01设置颜色
+      // 为平仓设置颜色
       obj.material.color.set(targetColor);
     }
   }
@@ -2035,7 +2047,7 @@ function getStackBaseColor(obj) {
     const owner = obj?.userData?.owner;
     const showCompanyColor = obj?.userData?.hasMaterialData === true;
     const isCylindricalSilo = type === '筒仓';
-    const isStarSilo = type === '星仓';
+    const isStarSilo = false; // 星仓已屏蔽
     const hasNumber = obj?.userData?.编号 && obj?.userData?.编号 !== '未分配';
 
     if (isCylindricalSilo) {
@@ -2047,12 +2059,13 @@ function getStackBaseColor(obj) {
       }
       return owner === 'JF' ? lineColors.siloOwnerJF : lineColors.silo;
     }
-  if (isStarSilo) {
-    if (!showCompanyColor) {
-      return emptySiloColor; // 空星仓使用灰色
-    }
-    return owner === 'JF' ? lineColors.starSiloOwnerJF : lineColors.starSilo;
-  }
+  // 星仓相关代码已屏蔽
+  // if (isStarSilo) {
+  //   if (!showCompanyColor) {
+  //     return emptySiloColor; // 空星仓使用灰色
+  //   }
+  //   return owner === 'JF' ? lineColors.starSiloOwnerJF : lineColors.starSilo;
+  // }
     if (!showCompanyColor) {
       return lineColors.stack;
     }
@@ -2061,17 +2074,19 @@ function getStackBaseColor(obj) {
 
 function getSiloHoverColor(obj) {
     const type = obj?.userData?.type;
-    if (type === '星仓') {
-      return lineColors.starSiloHover;
-    }
+    // 星仓悬停颜色已屏蔽
+    // if (type === '星仓') {
+    //   return lineColors.starSiloHover;
+    // }
     return lineColors.siloHover;
   }
 
 function getSiloSelectedColor(obj) {
     const type = obj?.userData?.type;
-    if (type === '星仓') {
-      return lineColors.starSiloSelected;
-    }
+    // 星仓选中颜色已屏蔽
+    // if (type === '星仓') {
+    //   return lineColors.starSiloSelected;
+    // }
     return lineColors.siloSelected;
   }
 
@@ -2118,8 +2133,8 @@ function getSiloSelectedColor(obj) {
     selected.getWorldPosition(wp);
     const ud = selected.userData || {};
 
-    if (ud.type === '筒仓' || ud.type === '星仓') {
-      const typeLabel = ud.type === '星仓' ? '★星仓详情' : '筒仓详情';
+    if (ud.type === '筒仓') {
+      const typeLabel = '筒仓详情';
       const materials = ud.物料详情 || [];
       
       
@@ -2218,7 +2233,7 @@ function getSiloSelectedColor(obj) {
         ${dataSourceHtml}
       `;
     } else {
-      // 处理平仓P01详情
+      // 处理平仓详情
       const materials = ud.物料详情 || [];
       
       let materialsHtml = '';
@@ -2247,7 +2262,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">平仓P01详情 #${ud.编号 || ud.id}</div>
+        <div style="font-weight:600;margin-bottom:6px;">${ud.type || '平仓'}详情 #${ud.编号 || ud.id}</div>
         <div>最大堆叠体积: ${ud.体积_m3} m³</div>
         <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
@@ -2287,7 +2302,7 @@ function getSiloSelectedColor(obj) {
       if (hovered !== selected) {
         const hoveredType = hovered.userData?.type;
         let hoverColor;
-        if (hoveredType === '筒仓' || hoveredType === '星仓') {
+        if (hoveredType === '筒仓') {
           hoverColor = getSiloHoverColor(hovered);
         } else if (hoveredType === '地磅') {
           hoverColor = lineColors.weighbridgeHover;
@@ -2325,7 +2340,7 @@ function getSiloSelectedColor(obj) {
     selected = hovered;
     const selectedType = selected.userData?.type;
     let selectedColor;
-    if (selectedType === '筒仓' || selectedType === '星仓') {
+    if (selectedType === '筒仓') {
       selectedColor = getSiloSelectedColor(selected);
     } else if (selectedType === '地磅') {
       selectedColor = lineColors.weighbridgeSelected;
@@ -2396,28 +2411,28 @@ function getSiloSelectedColor(obj) {
     e.stopPropagation();
     if (!selected) return;
     const id = selected.userData?.id;
-    const type = selected.userData?.type || '平仓P01';
+    const type = selected.userData?.type || '平仓';
     alert(`查看LFS订单：${type} #${id}`);
   });
   btnTms.addEventListener('click', (e) => {
     e.stopPropagation();
     if (!selected) return;
     const id = selected.userData?.id;
-    const type = selected.userData?.type || '平仓P01';
+    const type = selected.userData?.type || '平仓';
     alert(`查看相关TMS运输订单：${type} #${id}`);
   });
   btnFee.addEventListener('click', (e) => {
     e.stopPropagation();
     if (!selected) return;
     const id = selected.userData?.id;
-    const type = selected.userData?.type || '平仓P01';
+    const type = selected.userData?.type || '平仓';
     let feeType;
-    if (type === '筒仓' || type === '星仓') {
+    if (type === '筒仓') {
       feeType = '筒仓仓储费用';
     } else if (type === '地磅') {
       feeType = '地磅使用费用';
     } else {
-      feeType = '平仓P01仓储费用';
+      feeType = '平仓仓储费用';
     }
     alert(`查看${feeType}：${type} #${id}`);
   });
@@ -2429,11 +2444,11 @@ function getSiloSelectedColor(obj) {
     const userData = selected.userData;
     const type = userData?.type;
     
-    // 只有筒仓和星仓才有监控功能
-    if (type === '筒仓' || type === '星仓') {
+    // 只有筒仓才有监控功能
+    if (type === '筒仓') {
       showMonitorPanel(userData);
     } else {
-      alert('只有筒仓和星仓支持监控查看功能');
+      alert('只有筒仓支持监控查看功能');
     }
   });
 
@@ -3930,16 +3945,111 @@ function getSiloSelectedColor(obj) {
     const zRowOffset = -(roadWidth / 2 + wW / 2 + 5);
     const rowZs = [zRowOffset];
 
+    // 创建#A仓库（主仓库）- 保持原始位置不变
     const warehouses = [];
     for (let r = 0; r < rows; r++) {
-      const cz = rowZs[r];
       for (let c = 0; c < cols; c++) {
+        const warehouseIndex = r * cols + c;
+        const cz = rowZs[r];
         const cx = leftStart + c * (wL + gap);
-        const wh = buildWarehouse({length: wL, width: wW, height: wH, roofHeight: rH}, cx, cz, r * cols + c);
+        
+        const wh = buildWarehouse({length: wL, width: wW, height: wH, roofHeight: rH}, cx, cz, warehouseIndex);
         warehouses.push(wh);
-        const stkConf = await fetchWarehouseStackConfig(r * cols + c);
-        await populateStacks(wh, {length: wL, width: wW, height: wH}, stkConf, r * cols + c);
+        const stkConf = await fetchWarehouseStackConfig(warehouseIndex);
+        await populateStacks(wh, {length: wL, width: wW, height: wH}, stkConf, warehouseIndex);
       }
+    }
+
+    // 独立的平仓配置 - 每个平仓都是完全独立的
+    const flatWarehouseConfigs = {
+      'P01': { 
+        xOffset: -190, // 相对于#A仓库的偏移量
+        zOffset: 0,
+        enabled: true // 是否启用此平仓
+      },
+      'P02': { 
+        xOffset: -130, 
+        zOffset: 0,
+        enabled: true
+      },
+      'P03': { 
+        xOffset: -70, 
+        zOffset: 0,
+        enabled: true
+      },
+    };
+
+    // 创建独立的平仓
+    const flatWarehouses = [];
+    const mainWarehouseCx = leftStart; // #A仓库的X坐标
+    const mainWarehouseCz = rowZs[0];  // #A仓库的Z坐标
+
+    // 为每个平仓创建完整的仓库功能（包括堆垛）
+    for (const [warehouseName, config] of Object.entries(flatWarehouseConfigs)) {
+      if (!config.enabled) continue; // 跳过未启用的平仓
+      
+      const flatCx = mainWarehouseCx + config.xOffset;
+      const flatCz = mainWarehouseCz + config.zOffset;
+      const flatWarehouseIndex = parseInt(warehouseName.substring(1)) + 100; // P01->101, P02->102等
+      
+      // 创建平仓建筑（与#A仓库完全相同）
+      const flatWarehouse = buildWarehouse(
+        {length: wL, width: wW, height: wH, roofHeight: rH}, 
+        flatCx, 
+        flatCz, 
+        flatWarehouseIndex
+      );
+      
+      // 更新平仓标识为"仓库"类型
+      if (flatWarehouse.children && flatWarehouse.children.length > 0) {
+        // 找到墙体对象并更新其userData
+        const wallObject = flatWarehouse.children.find(child => child.userData && child.userData.type);
+        if (wallObject) {
+          wallObject.userData = {
+            type: '仓库', // 与#A仓库相同的类型
+            序号: warehouseName,
+            长: wL,
+            宽: wW,
+            高: wH,
+            位置: `X:${flatCx.toFixed(1)}, Z:${flatCz.toFixed(1)}`
+          };
+        }
+      }
+      
+      // 为平仓添加堆垛系统（与#A仓库完全相同）
+      try {
+        const stkConf = await fetchWarehouseStackConfig(flatWarehouseIndex);
+        await populateStacks(flatWarehouse, {length: wL, width: wW, height: wH}, stkConf, flatWarehouseIndex);
+      } catch (error) {
+        console.warn(`无法为${warehouseName}加载堆垛配置:`, error);
+        // 如果没有特定配置，使用默认堆垛配置
+        const defaultStackConfig = {
+          stacks: [
+            { x: -wL/4, z: -wW/4, height: 8, material: 'steel' },
+            { x: wL/4, z: -wW/4, height: 6, material: 'wood' },
+            { x: -wL/4, z: wW/4, height: 7, material: 'concrete' },
+            { x: wL/4, z: wW/4, height: 5, material: 'plastic' }
+          ]
+        };
+        await populateStacks(flatWarehouse, {length: wL, width: wW, height: wH}, defaultStackConfig, flatWarehouseIndex);
+      }
+      
+      // 添加仓库标签（与#A仓库样式一致）
+      const labelEl = document.createElement('div');
+      labelEl.className = 'whLabel';
+      labelEl.textContent = warehouseName;
+      labelEl.style.color = '#4A90E2'; // 蓝色，与#A仓库一致
+      labelEl.style.fontSize = '10px';
+      labelEl.style.padding = '2px 4px';
+      labelEl.style.backgroundColor = 'rgba(74, 144, 226, 0.1)';
+      labelEl.style.border = '1px solid #4A90E2';
+      labelEl.style.borderRadius = '3px';
+      
+      const labelObj = new CSS2DObject(labelEl);
+      labelObj.position.set(0, wH + rH + 8, 0);
+      flatWarehouse.add(labelObj);
+      
+      flatWarehouses.push(flatWarehouse);
     }
 
     try {
@@ -3948,10 +4058,10 @@ function getSiloSelectedColor(obj) {
         height: 35,
         spacingIntra: 0.5,
         spacingInter: 1.5,
-        rowGroupCounts: [2, 2, 2, 1, 1], // 筒仓
+        rowGroupCounts: [1, 1, 1, 1, 1], // 筒仓
         roadSouthMargin: 15, // 减少南侧边距，更好地利用空间
-        xOffset: 0, // X方向偏移量（正值向东，负值向西）
-        zOffset: -20  // Z方向偏移量（正值向北，负值向南）
+        xOffset: -80, // X方向偏移量（正值向东，负值向西）
+        zOffset: -70  // Z方向偏移量（正值向北，负值向南）
       });
 
       // 星仓偏移量配置
@@ -3960,41 +4070,41 @@ function getSiloSelectedColor(obj) {
         zOffset: -20  // Z方向偏移量（正值向北，负值向南）
       };
 
-      // 并行创建所有星仓（应用偏移量）
-      const starSiloPromises = [
-         // 一排星仓
-        placeStarSilo(-31.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-31.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-31.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-31.92 + starSiloConfig.xOffset, -45.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // 二排星仓
-        placeStarSilo(-21.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-21.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-21.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-22.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // 三排星仓
-        placeStarSilo(-11.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-11.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-11.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-12.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // 四排星仓
-        placeStarSilo(8.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(8.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // 五排星仓
-        placeStarSilo(18.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(18.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // 六排星仓
-        placeStarSilo(28.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(28.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
-      ];
+      // 星仓已屏蔽 - 不再创建星仓
+      // const starSiloPromises = [
+      //    // 一排星仓
+      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -45.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   // 二排星仓
+      //   placeStarSilo(-21.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-21.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-21.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-22.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   // 三排星仓
+      //   placeStarSilo(-11.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-11.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-11.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(-12.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   // 四排星仓
+      //   placeStarSilo(8.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(8.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   // 五排星仓
+      //   placeStarSilo(18.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(18.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   // 六排星仓
+      //   placeStarSilo(28.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+      //   placeStarSilo(28.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
+      // ];
 
-      await Promise.all(starSiloPromises);
+      // await Promise.all(starSiloPromises);
 
       // 添加地磅 - 立即渲染，不等待任何条件
       console.log('🚀 开始立即添加地磅...');
       
       // 立即创建地磅，不使用await等待，确保立即渲染
-      placeWeighbridge(-55, -50, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
+      placeWeighbridge(-55, 130, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
         length: 20, 
         width: 20, 
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
@@ -4004,7 +4114,7 @@ function getSiloSelectedColor(obj) {
         console.error('❌ 1号磅渲染失败:', error);
       });
       
-      placeWeighbridge(-10, -20, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
+      placeWeighbridge(-10, 130, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
         length: 20, 
         width: 20, 
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
@@ -4018,7 +4128,7 @@ function getSiloSelectedColor(obj) {
 
       // 添加保安室 - 放置在园区南侧入口附近
       const securityRoomX = -80; // 园区中央X位置
-      const securityRoomZ = -(yardW / 2 - 120); // 南侧路边，距离边界10米（往南为负值）
+      const securityRoomZ = -(yardW / 2 - 280); // 南侧路边，距离边界10米（往南为负值）
       buildSecurityRoom(securityRoomX, securityRoomZ, {
         length: 10,
         width: 8,
