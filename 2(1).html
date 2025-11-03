@@ -526,7 +526,7 @@
   // 配置获取
   async function fetchYardConfig() {
     return {
-      yard: {length: 300, width: 290, roadWidth: 20}, // 将length从350减少到300，缩小西方向50米；width保持290米
+      yard: {length: 300, width: 310, roadWidth: 20}, // 将length从350减少到300，缩小西方向50米；width保持290米
       warehouse: {
         count: 1,
         length: 40,
@@ -637,10 +637,6 @@
     siloOwnerJF: 0x33bb33,
     siloHover: 0x2eb8ff,
     siloSelected: 0xff4444,
-    starSilo: 0xf2b134,
-    starSiloOwnerJF: 0xffc75f,
-    starSiloHover: 0xffe59f,
-    starSiloSelected: 0xff7f50,
     weighbridge: 0x4A4A4A,
     weighbridgeHover: 0x5A5A5A,
     weighbridgeSelected: 0x6A6A6A,
@@ -756,7 +752,7 @@
 
   // 真实API接口配置
   const API_CONFIG = {
-    BASE_URL: 'http://127.0.0.1:8062', // 正式本地API服务
+    BASE_URL: 'http://127.0.0.1:8062', // 正式本地API服务`
     // BASE_URL: 'https://6166qiyy8859.vicp.fun', // 远程API服务
     PATH_PREFIX: '/driver-appointment-service',
     ENDPOINTS: {
@@ -1506,7 +1502,7 @@
 
   // 显示监控面板
   function showMonitorPanel(siloData) {
-    const siloType = '筒仓'; // 星仓已屏蔽
+    const siloType = '筒仓';
     const monitorTitle = monitorPanel.querySelector('.monitor-title');
     monitorTitle.textContent = `${siloType} #${siloData.id} 监控播放`;
     
@@ -1997,7 +1993,6 @@ function setStackColor(obj, color) {
 
     const type = obj.userData?.type;
     const isCylindricalSilo = type === '筒仓';
-    const isStarSilo = false; // 星仓已屏蔽
     const isSilo = isCylindricalSilo;
     const hasMaterialData = obj.userData?.hasMaterialData === true;
 
@@ -2005,9 +2000,7 @@ function setStackColor(obj, color) {
     if (isSilo && !hasMaterialData) {
       const looksLikeCompanyTint =
         color === lineColors.silo ||
-        color === lineColors.siloOwnerJF ||
-        color === lineColors.starSilo ||
-        color === lineColors.starSiloOwnerJF;
+        color === lineColors.siloOwnerJF;
       if (looksLikeCompanyTint) {
         targetColor = emptySiloColor;
       }
@@ -2047,7 +2040,6 @@ function getStackBaseColor(obj) {
     const owner = obj?.userData?.owner;
     const showCompanyColor = obj?.userData?.hasMaterialData === true;
     const isCylindricalSilo = type === '筒仓';
-    const isStarSilo = false; // 星仓已屏蔽
     const hasNumber = obj?.userData?.编号 && obj?.userData?.编号 !== '未分配';
 
     if (isCylindricalSilo) {
@@ -2059,13 +2051,6 @@ function getStackBaseColor(obj) {
       }
       return owner === 'JF' ? lineColors.siloOwnerJF : lineColors.silo;
     }
-  // 星仓相关代码已屏蔽
-  // if (isStarSilo) {
-  //   if (!showCompanyColor) {
-  //     return emptySiloColor; // 空星仓使用灰色
-  //   }
-  //   return owner === 'JF' ? lineColors.starSiloOwnerJF : lineColors.starSilo;
-  // }
     if (!showCompanyColor) {
       return lineColors.stack;
     }
@@ -2074,19 +2059,11 @@ function getStackBaseColor(obj) {
 
 function getSiloHoverColor(obj) {
     const type = obj?.userData?.type;
-    // 星仓悬停颜色已屏蔽
-    // if (type === '星仓') {
-    //   return lineColors.starSiloHover;
-    // }
     return lineColors.siloHover;
   }
 
 function getSiloSelectedColor(obj) {
     const type = obj?.userData?.type;
-    // 星仓选中颜色已屏蔽
-    // if (type === '星仓') {
-    //   return lineColors.starSiloSelected;
-    // }
     return lineColors.siloSelected;
   }
 
@@ -2805,231 +2782,44 @@ function getSiloSelectedColor(obj) {
 
   let siloIdSeq = 1;
   
-  // 星仓编号计数器 - 全局声明
-  let starSiloRowIndex = 0;
-  let starSiloColIndex = 0;
   
   // 筒仓编号映射表 - 按照实际创建顺序排列
   const siloNumberMap = {
-    // 所有筒仓编号 - 按照 rowGroupCounts: [2, 2, 2, 1, 1, 1] 的实际创建顺序
+    // 所有筒仓编号 - 按照 rowGroupCounts: [3, 3, 3, 3, 3] 的实际创建顺序
     silo: [
-      // 第1排第1组 (rowGroupCounts[0] = 2组中的第1组)
+      // 第1排第1组 (rowGroupCounts[0] = 3组中的第1组)
       ['T105', 'T205', 'T305', 'T405'],
-      // 第1排第2组 (rowGroupCounts[0] = 2组中的第2组)  
-      ['T503', 'T603', 'T703', 'T803'],
-      // 第2排第1组 (rowGroupCounts[1] = 2组中的第1组)
+      // 第1排第2组 (rowGroupCounts[0] = 3组中的第2组) - 向西扩展
+      ['T106', 'T206', 'T306', 'T406'],
+      // 第1排第3组 (rowGroupCounts[0] = 3组中的第3组) - 向西扩展
+      ['T107', 'T207', 'T307', 'T407'],
+      // 第2排第1组 (rowGroupCounts[1] = 3组中的第1组)
       ['T104', 'T204', 'T304', 'T404'],
-      // 第2排第2组 (rowGroupCounts[1] = 2组中的第2组)
-      ['T502', 'T602', 'T702', 'T802'],
-      // 第3排第1组 (rowGroupCounts[2] = 2组中的第1组)
+      // 第2排第2组 (rowGroupCounts[1] = 3组中的第2组) - 向西扩展
+      ['T108', 'T208', 'T308', 'T408'],
+      // 第2排第3组 (rowGroupCounts[1] = 3组中的第3组) - 向西扩展
+      ['T109', 'T209', 'T309', 'T409'],
+      // 第3排第1组 (rowGroupCounts[2] = 3组中的第1组)
       ['T103', 'T203', 'T303', 'T403'],
-      // 第3排第2组 (rowGroupCounts[2] = 2组中的第2组)
-      ['T501', 'T601', 'T701', 'T801'],
-      // 第4排第1组 (rowGroupCounts[3] = 1组)
+      // 第3排第2组 (rowGroupCounts[2] = 3组中的第2组) - 向西扩展
+      ['T110', 'T210', 'T310', 'T410'],
+      // 第3排第3组 (rowGroupCounts[2] = 3组中的第3组) - 向西扩展
+      ['T111', 'T211', 'T311', 'T411'],
+      // 第4排第1组 (rowGroupCounts[3] = 3组中的第1组)
       ['T102', 'T202', 'T302', 'T402'],
-      // 第5排第1组 (rowGroupCounts[4] = 1组)
+      // 第4排第2组 (rowGroupCounts[3] = 3组中的第2组) - 向西扩展
+      ['T112', 'T212', 'T312', 'T412'],
+      // 第4排第3组 (rowGroupCounts[3] = 3组中的第3组) - 向西扩展
+      ['T113', 'T213', 'T313', 'T413'],
+      // 第5排第1组 (rowGroupCounts[4] = 3组中的第1组)
       ['T101', 'T201', 'T301', 'T401'],
-      // 第6排第1组 (rowGroupCounts[5] = 1组) - 您新增的编号
-      ['T1011', 'T2011', 'T3011', 'T4011']
+      // 第5排第2组 (rowGroupCounts[4] = 3组中的第2组) - 向西扩展
+      ['T114', 'T214', 'T314', 'T414'],
+      // 第5排第3组 (rowGroupCounts[4] = 3组中的第3组) - 向西扩展
+      ['T115', 'T215', 'T315', 'T415']
     ],
-    // 星仓编号 - 按照实际创建顺序分配（共18个）
-    starSilo: [
-      // 第一组（一排星仓）：4个星仓 - 对应代码第2547-2551行
-      ['X104', 'X101', 'X103', 'X102'],
-      // 第二组（二排星仓）：4个星仓 - 对应代码第2552-2556行
-      ['X204', 'X203', 'X202', 'X201'],
-      // 第三组（三排星仓）：4个星仓 - 对应代码第2557-2561行
-      ['X304', 'X303', 'X302', 'X301'],
-      // 第四组（四排星仓）：2个星仓 - 对应代码第2562-2564行
-      ['X402', 'X401'],
-      // 第五组（五排星仓）：2个星仓 - 对应代码第2565-2567行
-      ['X502', 'X501'],
-      // 第六组（六排星仓）：2个星仓 - 对应代码第2568-2570行
-      ['X602', 'X601']
-    ]
   };
 
-  // ================== 星仓位置与编号对应关系说明 ==================
-  /**
-   * 星仓布局说明（共18个星仓）：
-   * 
-   * 根据用户提供的编号规则和实际代码创建顺序：
-   * 
-   * 第一组（一排星仓，X=-31.92）：4个星仓
-   * - X104: 位置(-31.92, -24.30, 49) - 代码第2548行
-   * - X101: 位置(-31.92, -56.50, 49) - 代码第2549行  
-   * - X103: 位置(-31.92, -35.00, 49) - 代码第2550行
-   * - X102: 位置(-31.92, -45.00, 49) - 代码第2551行
-   * 
-   * 第二组（二排星仓，X≈-21.92）：4个星仓
-   * - X204: 位置(-21.92, -24.30, 49) - 代码第2553行
-   * - X203: 位置(-21.92, -35.00, 49) - 代码第2554行
-   * - X202: 位置(-21.92, -45.50, 49) - 代码第2555行
-   * - X201: 位置(-22.92, -56.50, 49) - 代码第2556行
-   * 
-   * 第三组（三排星仓，X≈-11.92）：4个星仓
-   * - X304: 位置(-11.92, -24.30, 49) - 代码第2558行
-   * - X303: 位置(-11.92, -35.00, 49) - 代码第2559行
-   * - X302: 位置(-11.92, -45.50, 49) - 代码第2560行
-   * - X301: 位置(-12.92, -56.50, 49) - 代码第2561行
-   * 
-   * 第四组（四排星仓，X=8.92）：2个星仓
-   * - X402: 位置(8.92, -24.30, 49) - 代码第2563行
-   * - X401: 位置(8.92, -35.00, 49) - 代码第2564行
-   * 
-   * 第五组（五排星仓，X=18.92）：2个星仓
-   * - X502: 位置(18.92, -24.30, 49) - 代码第2566行
-   * - X501: 位置(18.92, -35.00, 49) - 代码第2567行
-   * 
-   * 第六组（六排星仓，X=28.92）：2个星仓
-   * - X602: 位置(28.92, -24.30, 49) - 代码第2569行
-   * - X601: 位置(28.92, -35.00, 49) - 代码第2570行
-   * 
-   * 编号规则：
-   * - 格式：X + 数字编号（X101-X602）
-   * - 第一位数字：表示排号（1-6）
-   * - 第二、三位数字：表示该排内的序号（01-04）
-   * - 编号按照实际创建顺序分配，确保与代码中的placeStarSilo调用顺序一致
-   */
-
-  /**
-   * 星仓编号验证和查询功能
-   */
-  
-  // 调试：检查场景中的星仓对象
-  function debugStarSilos() {
-    // 安全检查：确保scene对象存在
-    if (typeof scene === 'undefined' || !scene || typeof scene.traverse !== 'function') {
-      console.warn('⚠️ Scene对象未初始化，无法调试星仓');
-      return [];
-    }
-    
-    const starSilos = [];
-    scene.traverse((child) => {
-      if (child.userData?.type === '星仓') {
-        starSilos.push({
-          编号: child.userData.编号 || child.userData.id,
-          位置: {
-            x: child.position.x.toFixed(2),
-            y: child.position.y.toFixed(2), 
-            z: child.position.z.toFixed(2)
-          },
-          状态: child.userData.状态,
-          数据来源: child.userData.数据来源
-        });
-      }
-    });
-    
-    console.log('=== 场景中的星仓对象 ===');
-    console.log(`找到 ${starSilos.length} 个星仓:`);
-    starSilos.forEach((silo, index) => {
-      console.log(`${index + 1}. ${silo.编号} - 位置(${silo.位置.x}, ${silo.位置.y}, ${silo.位置.z}) - 状态: ${silo.状态} - 数据来源: ${silo.数据来源}`);
-    });
-    
-    // 检查缺失的星仓
-    const expectedSilos = siloNumberMap.starSilo.flat();
-    const foundSilos = starSilos.map(s => s.编号);
-    const missingSilos = expectedSilos.filter(expected => !foundSilos.includes(expected));
-    
-    if (missingSilos.length > 0) {
-      console.log(`\n⚠️ 缺失的星仓: ${missingSilos.join(', ')}`);
-    } else {
-      console.log(`\n✅ 所有星仓都已创建`);
-    }
-    
-    return { found: starSilos, missing: missingSilos };
-  }
-  
-  // 将调试函数暴露到全局
-  window.debugStarSilos = debugStarSilos;
-  
-  /**
-   * 调试星仓编号分配过程
-   */
-  function debugStarSiloNumbering() {
-    console.log('=== 星仓编号分配调试 ===');
-    console.log(`当前星仓行索引: ${starSiloRowIndex}`);
-    console.log(`当前星仓列索引: ${starSiloColIndex}`);
-    console.log('星仓编号映射表:');
-    siloNumberMap.starSilo.forEach((group, index) => {
-      console.log(`  第${index + 1}组: [${group.join(', ')}]`);
-    });
-    
-    // 下一个星仓编号分配
-    if (starSiloRowIndex < siloNumberMap.starSilo.length && starSiloColIndex < siloNumberMap.starSilo[starSiloRowIndex].length) {
-      const nextNumber = siloNumberMap.starSilo[starSiloRowIndex][starSiloColIndex];
-      console.log(`下一个分配的编号: ${nextNumber}`);
-    } else {
-      console.log('已超出预定义编号范围，将使用自动生成编号');
-    }
-  }
-  
-  // 暴露到全局
-  window.debugStarSiloNumbering = debugStarSiloNumbering;
-  
-  /**
-   * 重置星仓编号计数器
-   */
-  function resetStarSiloCounters() {
-    starSiloRowIndex = 0;
-    starSiloColIndex = 0;
-    console.log('星仓编号计数器已重置');
-    debugStarSiloNumbering();
-  }
-  
-  // 暴露到全局
-  window.resetStarSiloCounters = resetStarSiloCounters;
-  function validateStarSiloNumbering() {
-    const expectedTotal = 18;
-    const actualTotal = siloNumberMap.starSilo.flat().length;
-    
-    console.log('=== 星仓编号验证 ===');
-    console.log(`预期总数: ${expectedTotal}`);
-    console.log(`实际总数: ${actualTotal}`);
-    console.log(`验证结果: ${actualTotal === expectedTotal ? '✓ 通过' : '✗ 失败'}`);
-    
-    // 打印每组编号
-    siloNumberMap.starSilo.forEach((group, index) => {
-      console.log(`第${index + 1}组: [${group.join(', ')}] (${group.length}个)`);
-    });
-    
-    return actualTotal === expectedTotal;
-  }
-
-  /**
-   * 根据编号获取星仓位置信息（调试用）
-   */
-  function getStarSiloPositionByNumber(number) {
-    // 位置映射表（与代码中的placeStarSilo调用对应）
-    const positionMap = {
-      // 第一组
-      'X104': { x: -31.92, y: -24.30, z: 49, line: 2548 },
-      'X101': { x: -31.92, y: -56.50, z: 49, line: 2549 },
-      'X103': { x: -31.92, y: -35.00, z: 49, line: 2550 },
-      'X102': { x: -31.92, y: -45.00, z: 49, line: 2551 },
-      // 第二组
-      'X204': { x: -21.92, y: -24.30, z: 49, line: 2553 },
-      'X203': { x: -21.92, y: -35.00, z: 49, line: 2554 },
-      'X202': { x: -21.92, y: -45.50, z: 49, line: 2555 },
-      'X201': { x: -22.92, y: -56.50, z: 49, line: 2556 },
-      // 第三组
-      'X304': { x: -11.92, y: -24.30, z: 49, line: 2558 },
-      'X303': { x: -11.92, y: -35.00, z: 49, line: 2559 },
-      'X302': { x: -11.92, y: -45.50, z: 49, line: 2560 },
-      'X301': { x: -12.92, y: -56.50, z: 49, line: 2561 },
-      // 第四组
-      'X402': { x: 8.92, y: -24.30, z: 49, line: 2563 },
-      'X401': { x: 8.92, y: -35.00, z: 49, line: 2564 },
-      // 第五组
-      'X502': { x: 18.92, y: -24.30, z: 49, line: 2566 },
-      'X501': { x: 18.92, y: -35.00, z: 49, line: 2567 },
-      // 第六组
-      'X602': { x: 28.92, y: -24.30, z: 49, line: 2569 },
-      'X601': { x: 28.92, y: -35.00, z: 49, line: 2570 }
-    };
-    
-    return positionMap[number] || null;
-  }
 
 
   
@@ -3037,59 +2827,6 @@ function getSiloSelectedColor(obj) {
   let siloRowIndex = 0;
   let siloColIndex = 0;
 
-  function createStarOutlinePoints(outerRadius, innerRadius, arms = 5) {
-    const pts = [];
-    const total = arms * 2;
-    for (let i = 0; i < total; i++) {
-      const angle = (i / total) * Math.PI * 2 - Math.PI / 2;
-      const radius = i % 2 === 0 ? outerRadius : innerRadius;
-      pts.push(new THREE.Vector2(Math.cos(angle) * radius, Math.sin(angle) * radius));
-    }
-    return pts;
-  }
-
-  function computePolygonArea2D(points) {
-    let area = 0;
-    for (let i = 0; i < points.length; i++) {
-      const p1 = points[i];
-      const p2 = points[(i + 1) % points.length];
-      area += p1.x * p2.y - p2.x * p1.y;
-    }
-    return Math.abs(area) / 2;
-  }
-
-  function buildStarSiloBody(outerRadius, innerRadius, height, materials = [], arms = 5) {
-    const outline = createStarOutlinePoints(outerRadius, innerRadius, arms);
-    const shape = new THREE.Shape();
-    shape.moveTo(outline[0].x, outline[0].y);
-    for (let i = 1; i < outline.length; i++) {
-      shape.lineTo(outline[i].x, outline[i].y);
-    }
-    shape.closePath();
-
-    const extrude = new THREE.ExtrudeGeometry(shape, {
-      steps: 1,
-      depth: height,
-      bevelEnabled: false
-    });
-    extrude.rotateX(-Math.PI / 2);
-    extrude.translate(0, height / 2, 0);
-
-    // 根据是否有物料决定颜色：空星仓用灰色，有物料用金色
-    const hasMaterials = materials && materials.length > 0;
-    const bodyColor = hasMaterials ? lineColors.starSilo : emptySiloColor;
-
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: bodyColor,
-      roughness: 0.55,
-      metalness: 0.25
-    });
-    const body = new THREE.Mesh(extrude, bodyMat);
-    body.castShadow = true;
-    body.receiveShadow = true;
-
-    return {body, outline};
-  }
 
   async function placeSilo(x, z, radius, height, addDetails = true) {
     const group = new THREE.Group();
@@ -3682,169 +3419,11 @@ function getSiloSelectedColor(obj) {
     return lineColors.weighbridge;
   }
 
-  async function placeStarSilo(x, z, height, options = {}) {
-    const {
-      outerRadius = 3.2,
-      innerRadius = outerRadius * 0.55,
-      arms = 5,
-      densityTPerM3 = 0.75,
-      addDetails = true
-    } = options;
-
-    // 计算基本参数
-    const area = computePolygonArea2D(createStarOutlinePoints(outerRadius, innerRadius, arms));
-    const volume = area * height;
-    const rawCapacity = volume * densityTPerM3;
-    const capacity = rawCapacity.toFixed(1);
-    
-    // 使用星仓专用编号系统
-    let starSiloNumber;
-    
-    if (starSiloRowIndex < siloNumberMap.starSilo.length && starSiloColIndex < siloNumberMap.starSilo[starSiloRowIndex].length) {
-      starSiloNumber = siloNumberMap.starSilo[starSiloRowIndex][starSiloColIndex];
-      starSiloColIndex++;
-      if (starSiloColIndex >= siloNumberMap.starSilo[starSiloRowIndex].length) {
-        starSiloColIndex = 0;
-        starSiloRowIndex++;
-      }
-    } else {
-      starSiloNumber = `X${String(siloIdSeq).padStart(3, '0')}`;
-    }
-    const siloId = siloIdSeq++;
-
-    // 通过接口获取星仓和物料数据
-    let apiData;
-    try {
-      apiData = await fetchSiloAndMaterialData({
-        siloId: siloId,
-        siloNumber: starSiloNumber, // 传递本地编号用于API数据查找
-        siloType: '星仓',
-        radius: outerRadius,
-        height: height,
-        volume: volume,
-        capacity: capacity
-      });
-    } catch (error) {
-      console.error(`获取星仓 ${starSiloNumber} 数据失败:`, error);
-      // 使用默认数据继续创建星仓，避免完全失败
-      apiData = {
-        siloInfo: {
-          id: starSiloNumber,
-          type: '星仓',
-          radius: outerRadius,
-          height: height,
-          volume: volume,
-          maxCapacity: capacity,
-          currentStorage: 0,
-          owner: undefined,
-          status: '离线'
-        },
-        materialDetails: [],
-        timestamp: Date.now(),
-        dataSource: 'fallback-default'
-      };
-    }
-
-    const { siloInfo: rawSiloInfo = {}, materialDetails = [] } = apiData;
-    const siloInfo = {
-      ...rawSiloInfo,
-      type: '星仓',
-      arms: rawSiloInfo?.arms ?? arms
-    };
-    const activeMaterials = Array.isArray(materialDetails)
-    ? materialDetails.filter(m => Number.isFinite(toNumber(m?.amount)) && Math.abs(toNumber(m.amount)) > 1e-6)
-    : [];
-    const hasMaterialData = activeMaterials.length > 0;
-
-
-    const group = new THREE.Group();
-    // 只有有物料数据时才传递物料详情，否则传递空数组
-    const {body, outline} = buildStarSiloBody(outerRadius, innerRadius, height, activeMaterials, arms);
-    group.add(body);
-
-    // 为星仓添加线框（简化为轮廓线）
-    const outlineGeometry = new THREE.BufferGeometry().setFromPoints([
-      ...outline.map(p => new THREE.Vector3(p.x, 0, p.y)),
-      new THREE.Vector3(outline[0].x, 0, outline[0].y) // 闭合
-    ]);
-    const outlineBottom = new THREE.Line(outlineGeometry, new THREE.LineBasicMaterial({color: lineColors.starSilo}));
-
-    const outlineTop = outlineBottom.clone();
-    outlineTop.position.y = height;
-
-    group.add(outlineBottom);
-    group.add(outlineTop);
-
-    if (addDetails) {
-      const capBaseGeo = new THREE.CylinderGeometry(innerRadius * 0.6, innerRadius * 0.6, 1.5, arms * 2);
-      const capBaseMat = new THREE.MeshStandardMaterial({
-        color: 0xffc75f,
-        roughness: 0.45,
-        metalness: 0.35
-      });
-      const capBase = new THREE.Mesh(capBaseGeo, capBaseMat);
-      capBase.position.y = height + 0.75;
-      capBase.castShadow = true;
-      capBase.receiveShadow = true;
-      group.add(capBase);
-
-      const spireGeo = new THREE.ConeGeometry(innerRadius * 0.45, 2.2, Math.max(arms * 2, 6));
-      const spireMat = new THREE.MeshStandardMaterial({
-        color: 0xffe59f,
-        roughness: 0.35,
-        metalness: 0.3
-      });
-      const spire = new THREE.Mesh(spireGeo, spireMat);
-      spire.position.y = height + 2.0;
-      spire.castShadow = true;
-      group.add(spire);
-    }
-
-    // 使用接口返回的数据设置星仓信息
-    group.userData = {
-      type: '星仓',
-      id: starSiloNumber, // 使用本地分配的星仓编号
-      编号: starSiloNumber, // 使用本地分配的星仓编号，不使用API返回的编号
-      owner: hasMaterialData ? siloInfo.owner : undefined,
-      半径_m: siloInfo.radius,
-      高度_m: siloInfo.height,
-      容积_m3: siloInfo.volume,
-      最大容量_t: siloInfo.maxCapacity,
-      当前储量_t: siloInfo.currentStorage,
-      仓内温度_c: siloInfo.temperature,
-      仓内湿度_percent: siloInfo.humidity,
-      星角数: siloInfo.arms ?? arms,
-      物料详情: hasMaterialData ? activeMaterials : [],
-      hasMaterialData: hasMaterialData,
-      // 添加特殊标识
-      特殊标识: siloInfo.specialMark,
-      // 添加接口数据来源标识
-      数据来源: apiData.dataSource,
-      更新时间: apiData.timestamp
-    };
-
-    group.position.set(x,-36, z); // 星仓放置在地面
-    scene.add(group);
-    registerPickable(group);
-
-    // 所有星仓都注册为可交互对象，无论是否有物料数据
-    registerInteractive(group);
-    
-    // 根据是否有物料数据设置颜色
-    if (hasMaterialData) {
-      setStackColor(group, getStackBaseColor(group));
-    } else {
-      // 确保空星仓使用灰色
-      setStackColor(group, emptySiloColor);
-    }
-
-    return group;
-  }
 
   async function addSiloGroup(centerX, centerZ, D, spacingIntra, height) {
     const r = D / 2;
     const step = D + spacingIntra;
-    const offsets = [-1.5, -0.5, 0.5, 1.5];
+    const offsets = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]; // 每组固定6个筒仓（在X方向）
     const silos = [];
 
     // 并行创建所有筒仓
@@ -3863,7 +3442,7 @@ function getSiloSelectedColor(obj) {
       scene.add(bridge);
     }
 
-    const platformGeo = new THREE.PlaneGeometry(step * 4, D * 0.8);
+    const platformGeo = new THREE.PlaneGeometry(step * 6, D * 0.8); // 平台宽度适配6个筒仓
     const platformMat = new THREE.MeshStandardMaterial({
       color: 0xC0C0C0,
       roughness: 0.85,
@@ -3892,7 +3471,7 @@ function getSiloSelectedColor(obj) {
     const volumeM3 = capacityTons / densityTPerM3;
     const radius = options.radius ?? Math.sqrt(volumeM3 / (Math.PI * height));
     const D = radius * 2;
-    const groupWidth = 4 * D + 3 * spacingIntra;
+    const groupWidth = 5 * D + 4 * spacingIntra; // 每组5个筒仓，4个间距
     const groupDepth = D;
 
     // 计算筒仓位置时使用仓库的原始位置，不受仓库移动影响
@@ -3914,7 +3493,7 @@ function getSiloSelectedColor(obj) {
       let xStart = xEast + corridor + (groupWidth / 2) + xOffset; // 应用X方向偏移量
 
       for (let gi = 0; gi < groupsInRow; gi++) {
-        const cx = xStart + gi * (groupWidth + spacingInter);
+        const cx = xStart - gi * (groupWidth + spacingInter); // 向西扩展（负方向）
         groupPromises.push(addSiloGroup(cx, zStart, D, spacingIntra, height));
       }
       zStart -= (groupDepth + spacingInter);
@@ -3923,7 +3502,7 @@ function getSiloSelectedColor(obj) {
     // 并行创建所有筒仓组
     await Promise.all(groupPromises);
 
-    return {D, height, radius, count: rowGroupCounts.reduce((a, b) => a + b, 0) * 4};
+    return {D, height, radius, count: rowGroupCounts.reduce((a, b) => a + b, 0) * 5}; // 每组5个筒仓
   }
 
   async function init() {
@@ -4058,47 +3637,12 @@ function getSiloSelectedColor(obj) {
         height: 35,
         spacingIntra: 0.5,
         spacingInter: 1.5,
-        rowGroupCounts: [1, 1, 1, 1, 1], // 筒仓
+        rowGroupCounts: [1, 1, 1, 1, 1], // 筒仓 - Z方向5排，每排5个筒仓（在X方向）
         roadSouthMargin: 15, // 减少南侧边距，更好地利用空间
-        xOffset: -80, // X方向偏移量（正值向东，负值向西）
+        xOffset: -100, // X方向偏移量（正值向东，负值向西）- 向西移动更多以容纳新增筒仓
         zOffset: -70  // Z方向偏移量（正值向北，负值向南）
       });
 
-      // 星仓偏移量配置
-      const starSiloConfig = {
-        xOffset: 0, // X方向偏移量（正值向东，负值向西）
-        zOffset: -20  // Z方向偏移量（正值向北，负值向南）
-      };
-
-      // 星仓已屏蔽 - 不再创建星仓
-      // const starSiloPromises = [
-      //    // 一排星仓
-      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-31.92 + starSiloConfig.xOffset, -45.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   // 二排星仓
-      //   placeStarSilo(-21.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-21.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-21.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-22.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   // 三排星仓
-      //   placeStarSilo(-11.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-11.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-11.92 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(-12.92 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   // 四排星仓
-      //   placeStarSilo(8.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(8.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   // 五排星仓
-      //   placeStarSilo(18.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(18.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   // 六排星仓
-      //   placeStarSilo(28.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-      //   placeStarSilo(28.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
-      // ];
-
-      // await Promise.all(starSiloPromises);
 
       // 添加地磅 - 立即渲染，不等待任何条件
       console.log('🚀 开始立即添加地磅...');
