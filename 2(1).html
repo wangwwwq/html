@@ -1578,7 +1578,7 @@
     scene.add(border);
   }
 
-  function buildMainRoad(roadWidth, length) {
+  function buildMainRoad(roadWidth, length, zOffset = 0) {
     const halfL = length / 2;
     const halfW = roadWidth / 2;
     const sidewalk = 3;
@@ -1586,7 +1586,7 @@
 
     const y = 0.02;
     const mkLine = (pts, material) => {
-      const g = new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(p[0], y, p[1])));
+      const g = new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(p[0], y, p[1] + zOffset)));
       const line = new THREE.Line(g, material);
       return line;
     };
@@ -1600,22 +1600,22 @@
     scene.add(mkLine([[-halfL, laneEdge], [halfL, laneEdge]], baseMat.clone()));
 
     const gCenter = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-halfL, y, 0), new THREE.Vector3(halfL, y, 0)
+      new THREE.Vector3(-halfL, y, 0 + zOffset), new THREE.Vector3(halfL, y, 0 + zOffset)
     ]);
     const centerLine = new THREE.Line(gCenter, dashedMat);
     centerLine.computeLineDistances();
     scene.add(centerLine);
   }
 
-  function buildSidewalkTrees(roadWidth, length, spacing = 10) {
+  function buildSidewalkTrees(roadWidth, length, spacing = 10, zOffset = 0) {
     const halfL = length / 2;
     const halfW = roadWidth / 2;
     const sidewalk = 3;
     const zOnSidewalk = halfW - sidewalk / 2;
 
     for (let x = -halfL; x <= halfL + 1e-6; x += spacing) {
-      addTree(x, zOnSidewalk);
-      addTree(x, -zOnSidewalk);
+      addTree(x, zOnSidewalk + zOffset);
+      addTree(x, -zOnSidewalk + zOffset);
     }
 
     function addTree(x, z) {
@@ -3512,8 +3512,9 @@ function getSiloSelectedColor(obj) {
     const cfg = await fetchYardConfig();
     const {length: yardL, width: yardW, roadWidth} = cfg.yard;
     buildYardGrid(yardL, yardW);
-    buildMainRoad(roadWidth, yardL);
-    buildSidewalkTrees(roadWidth, yardL);
+    const roadZOffset = 30; // 道路向北移动30米（正值向北）
+    buildMainRoad(roadWidth, yardL, roadZOffset);
+    buildSidewalkTrees(roadWidth, yardL, 10, roadZOffset);
 
     const {length: wL, width: wW, height: wH, roofHeight: rH, gap} = cfg.warehouse;
     const cols = 1;
@@ -3544,16 +3545,19 @@ function getSiloSelectedColor(obj) {
       'P01': { 
         xOffset: -190, // 相对于#A仓库的偏移量
         zOffset: 0,
+        scale: 1.5, // 模型缩放比例
         enabled: true // 是否启用此平仓
       },
       'P02': { 
         xOffset: -130, 
         zOffset: 0,
+        scale: 1.5, // 模型缩放比例
         enabled: true
       },
       'P03': { 
         xOffset: -70, 
         zOffset: 0,
+        scale: 1.5, // 模型缩放比例
         enabled: true
       },
     };
@@ -3578,6 +3582,11 @@ function getSiloSelectedColor(obj) {
         flatCz, 
         flatWarehouseIndex
       );
+      
+      // 应用缩放比例
+      if (config.scale && config.scale !== 1) {
+        flatWarehouse.scale.set(config.scale, config.scale, config.scale);
+      }
       
       // 更新平仓标识为"仓库"类型
       if (flatWarehouse.children && flatWarehouse.children.length > 0) {
