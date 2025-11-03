@@ -1672,12 +1672,13 @@
     const phone = '';
     group.userData.whInfo = {id: `#${idChar}`, area, temperature, services, phone};
 
-    const labelEl = document.createElement('div');
-    labelEl.className = 'whLabel';
-    labelEl.textContent = group.userData.whInfo.id;
-    const labelObj = new CSS2DObject(labelEl);
-    labelObj.position.set(0, height + roofHeight + 6, 0);
-    group.add(labelObj);
+    // 不添加仓库标签，只显示堆垛名称
+    // const labelEl = document.createElement('div');
+    // labelEl.className = 'whLabel';
+    // labelEl.textContent = group.userData.whInfo.id;
+    // const labelObj = new CSS2DObject(labelEl);
+    // labelObj.position.set(0, height + roofHeight + 6, 0);
+    // group.add(labelObj);
 
     scene.add(group);
     return group;
@@ -1710,16 +1711,16 @@
       group.add(line);
     }
 
-    // 标签
-    const labelEl = document.createElement('div');
-    labelEl.className = 'whLabel';
-    labelEl.textContent = '保安室';
-    labelEl.style.color = '#4169E1';
-    labelEl.style.fontSize = '8px'; // 设置更小的字体
-    labelEl.style.padding = '1px 3px'; // 进一步减小内边距
-    const labelObj = new CSS2DObject(labelEl);
-    labelObj.position.set(0, height + roofHeight + 5, 0); // 提高标签位置
-    group.add(labelObj);
+    // 不添加保安室标签
+    // const labelEl = document.createElement('div');
+    // labelEl.className = 'whLabel';
+    // labelEl.textContent = '保安室';
+    // labelEl.style.color = '#4169E1';
+    // labelEl.style.fontSize = '8px';
+    // labelEl.style.padding = '1px 3px';
+    // const labelObj = new CSS2DObject(labelEl);
+    // labelObj.position.set(0, height + roofHeight + 5, 0);
+    // group.add(labelObj);
 
 
     scene.add(group);
@@ -1748,15 +1749,16 @@
 
     // 根据仓库索引判断是#A仓库还是平仓
     // index < 100: #A仓库（单个堆垛）
-    // index >= 100: 独立平仓P01、P02、P03（每个内部有3个堆垛从南到北排列）
+    // index == 104: P04平仓（单个堆垛）
+    // index >= 100 (其他): 独立平仓P01、P02、P03（每个内部有3个堆垛从南到北排列）
     let stackPositions;
-    if (index < 100) {
-      // #A仓库：保持原来的单个堆垛
+    if (index < 100 || index === 104) {
+      // #A仓库或P04：单个堆垛
       stackPositions = [
         { x: cx, z: cz, number: 'P02' }  // 中心位置，单个堆垛
       ];
     } else {
-      // 独立平仓：3个堆垛从南到北排列
+      // 独立平仓（P01、P02、P03）：3个堆垛从南到北排列
       const stackSpacing = sz * 1.2; // 平仓之间的间距（基于平仓宽度）
       stackPositions = [
         { x: cx, z: cz - stackSpacing, number: 'P01' },      // 南侧（Z轴负方向）
@@ -3534,7 +3536,7 @@ function getSiloSelectedColor(obj) {
     const totalRowSpan = cols * wL + (cols - 1) * gap;
     const leftStart = -totalRowSpan / 2 + wL / 2 + 120; // 将仓库#A向东移动（增加X坐标）
 
-    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5);
+    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5) + 20; // 向北移动10米（增加Z坐标）
     const rowZs = [zRowOffset];
 
     // 创建#A仓库（主仓库）- 保持原始位置不变
@@ -3556,20 +3558,26 @@ function getSiloSelectedColor(obj) {
     const flatWarehouseConfigs = {
       'P01': { 
         xOffset: -230, // 相对于#A仓库的偏移量
-        zOffset: 0,
+        zOffset: 10,
         scale: 1.5, // 模型缩放比例
         enabled: true // 是否启用此平仓
       },
       'P02': { 
         xOffset: -150, 
-        zOffset: 0,
+        zOffset: 10,
         scale: 1.5, // 模型缩放比例
         enabled: true
       },
       'P03': { 
-        xOffset: -60, 
-        zOffset: 0,
+        xOffset: -70, 
+        zOffset: 10,
         scale: 1.5, // 模型缩放比例
+        enabled: true
+      },
+      'P04': { 
+        xOffset: 0, 
+        zOffset: -80,
+        scale: 1, // 模型缩放比例
         enabled: true
       },
     };
@@ -3634,20 +3642,7 @@ function getSiloSelectedColor(obj) {
         await populateStacks(flatWarehouse, {length: wL, width: wW, height: wH}, defaultStackConfig, flatWarehouseIndex);
       }
       
-      // 添加仓库标签（与#A仓库样式一致）
-      const labelEl = document.createElement('div');
-      labelEl.className = 'whLabel';
-      labelEl.textContent = warehouseName;
-      labelEl.style.color = '#4A90E2'; // 蓝色，与#A仓库一致
-      labelEl.style.fontSize = '10px';
-      labelEl.style.padding = '2px 4px';
-      labelEl.style.backgroundColor = 'rgba(74, 144, 226, 0.1)';
-      labelEl.style.border = '1px solid #4A90E2';
-      labelEl.style.borderRadius = '3px';
-      
-      const labelObj = new CSS2DObject(labelEl);
-      labelObj.position.set(0, wH + rH + 8, 0);
-      flatWarehouse.add(labelObj);
+      // 不添加额外的标签，使用模型自带的 #Y、#X、#Z 标签
       
       flatWarehouses.push(flatWarehouse);
     }
