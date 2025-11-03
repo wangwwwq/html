@@ -540,7 +540,7 @@
 
   async function fetchWarehouseStackConfig(warehouseIndex) {
     return {
-      stackSize: {length: 25, width: 25, height: 12},
+      stackSize: {length: 18, width: 18, height: 8},
       spacing: 5,
       margin: 5
     };
@@ -1746,12 +1746,24 @@
     const cx = center.x, cz = center.z;
     const whInfo = warehouseGroup.userData?.whInfo || null;
 
-    // 生成3个平仓：P01、P02、P03
-    const stackPositions = [
-      // { x: cx - sx * 0.8, z: cz, number: 'P01' },           // 左侧
-      { x: cx, z: cz, number: 'P02' },                      // 中心
-      // { x: cx + sx * 0.8, z: cz, number: 'P03' }           // 右侧
-    ];
+    // 根据仓库索引判断是#A仓库还是平仓
+    // index < 100: #A仓库（单个堆垛）
+    // index >= 100: 独立平仓P01、P02、P03（每个内部有3个堆垛从南到北排列）
+    let stackPositions;
+    if (index < 100) {
+      // #A仓库：保持原来的单个堆垛
+      stackPositions = [
+        { x: cx, z: cz, number: 'P02' }  // 中心位置，单个堆垛
+      ];
+    } else {
+      // 独立平仓：3个堆垛从南到北排列
+      const stackSpacing = sz * 1.2; // 平仓之间的间距（基于平仓宽度）
+      stackPositions = [
+        { x: cx, z: cz - stackSpacing, number: 'P01' },      // 南侧（Z轴负方向）
+        { x: cx, z: cz, number: 'P02' },                     // 中心
+        { x: cx, z: cz + stackSpacing, number: 'P03' }       // 北侧（Z轴正方向）
+      ];
+    }
 
     for (let i = 0; i < stackPositions.length; i++) {
       const position = stackPositions[i];
@@ -3520,7 +3532,7 @@ function getSiloSelectedColor(obj) {
     const cols = 1;
     const rows = 1;
     const totalRowSpan = cols * wL + (cols - 1) * gap;
-    const leftStart = -totalRowSpan / 2 + wL / 2 + 90; // 将仓库#A向右移动米
+    const leftStart = -totalRowSpan / 2 + wL / 2 + 120; // 将仓库#A向东移动（增加X坐标）
 
     const zRowOffset = -(roadWidth / 2 + wW / 2 + 5);
     const rowZs = [zRowOffset];
@@ -3543,19 +3555,19 @@ function getSiloSelectedColor(obj) {
     // 独立的平仓配置 - 每个平仓都是完全独立的
     const flatWarehouseConfigs = {
       'P01': { 
-        xOffset: -190, // 相对于#A仓库的偏移量
+        xOffset: -230, // 相对于#A仓库的偏移量
         zOffset: 0,
         scale: 1.5, // 模型缩放比例
         enabled: true // 是否启用此平仓
       },
       'P02': { 
-        xOffset: -130, 
+        xOffset: -150, 
         zOffset: 0,
         scale: 1.5, // 模型缩放比例
         enabled: true
       },
       'P03': { 
-        xOffset: -70, 
+        xOffset: -60, 
         zOffset: 0,
         scale: 1.5, // 模型缩放比例
         enabled: true
