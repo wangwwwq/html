@@ -651,22 +651,6 @@
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
   const noNumberSiloColor = 0xFF6B6B; // 红色，表示没有分配编号的筒仓
 
-  
-  // 公司颜色映射（已弃用，现在使用API返回的companyColor字段）
-  const companyColors = {
-    '建发集团': 0x22aa22,  // 绿色
-    '国贸集团': 0x2563eb,  // 蓝色
-    '中粮集团': 0xf59e0b,  // 黄色
-    '华润集团': 0xef4444,  // 红色
-    '新希望集团': 0x8b5cf6, // 紫色
-    '正邦集团': 0x06b6d4,  // 青色
-    // 新增的公司颜色映射
-    '广州市储备粮管理中心': 0x22aa22,  // 绿色
-    '黄埔区发展和改革局': 0x32b67a,  // hsl(162.0, 65%, 55%) - 绿蓝色
-    '河南华穗农产品有限公司': 0xf59e0b,  // 黄色
-    '粤海永顺泰（广州）麦芽有限公司': 0xef4444  // 红色
-  };
-  
   // 颜色转换工具函数
   function getColorCSS(hexColor) {
     return `#${hexColor.toString(16).padStart(6, '0')}`;
@@ -1651,48 +1635,49 @@
     return group;
   }
 
-  // 保安室构建函数 - 已注释
-  // function buildSecurityRoom(centerX, centerZ, {length = 10, width = 8, height = 4, roofHeight = 1.5} = {}) {
-  //   const group = new THREE.Group();
-  //   group.position.set(centerX, 0, centerZ);
-
-  //   // 墙体
-  //   const wall = createWireframe(new THREE.BoxGeometry(length, height, width), lineColors.wall);
-  //   wall.position.set(0, height / 2, 0);
-  //   wall.userData = {type: '保安室', 长: length, 宽: width, 高: height, 功能: '安保值班'};
-  //   group.add(wall);
-
-  //   // 屋顶
-  //   const hx = length / 2, hz = width / 2, yTop = height, yRidge = height + roofHeight;
-  //   const roofColor = lineColors.roof;
-  //   const roofLines = [];
-  //   roofLines.push([[-hx, yTop, -hz], [0, yRidge, -hz], [hx, yTop, -hz], [-hx, yTop, -hz]]);
-  //   roofLines.push([[-hx, yTop, hz], [0, yRidge, hz], [hx, yTop, hz], [-hx, yTop, hz]]);
-  //   roofLines.push([[-hx, yRidge, 0], [hx, yRidge, 0]]);
-  //   roofLines.push([[-hx, yTop, -hz], [-hx, yTop, hz]]);
-  //   roofLines.push([[hx, yTop, -hz], [hx, yTop, hz]]);
-
-  //   for (const pts of roofLines) {
-  //     const g = new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(p[0], p[1], p[2])));
-  //     const line = new THREE.Line(g, new THREE.LineBasicMaterial({color: roofColor}));
-  //     group.add(line);
-  //   }
-
-  //   // 不添加保安室标签
-  //   // const labelEl = document.createElement('div');
-  //   // labelEl.className = 'whLabel';
-  //   // labelEl.textContent = '保安室';
-  //   // labelEl.style.color = '#4169E1';
-  //   // labelEl.style.fontSize = '8px';
-  //   // labelEl.style.padding = '1px 3px';
-  //   // const labelObj = new CSS2DObject(labelEl);
-  //   // labelObj.position.set(0, height + roofHeight + 5, 0);
-  //   // group.add(labelObj);
-
-
-  //   scene.add(group);
-  //   return group;
-  // }
+  // 保安室构建函数
+  function buildSecurityRoom() {
+    const securityRoomGeometry = new THREE.BoxGeometry(10, 8, 8);
+    const securityRoomMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+    const securityRoom = new THREE.Mesh(securityRoomGeometry, securityRoomMaterial);
+    
+    // 设置保安室位置
+    securityRoom.position.set(-50, 4, -30);
+    
+    // 添加门
+    const doorGeometry = new THREE.BoxGeometry(2, 6, 0.2);
+    const doorMaterial = new THREE.MeshLambertMaterial({ color: 0x654321 });
+    const door = new THREE.Mesh(doorGeometry, doorMaterial);
+    door.position.set(0, -1, 4.1);
+    securityRoom.add(door);
+    
+    // 添加窗户
+    const windowGeometry = new THREE.BoxGeometry(3, 2, 0.2);
+    const windowMaterial = new THREE.MeshLambertMaterial({ color: 0x87CEEB });
+    const window1 = new THREE.Mesh(windowGeometry, windowMaterial);
+    window1.position.set(-3, 1, 4.1);
+    securityRoom.add(window1);
+    
+    const window2 = new THREE.Mesh(windowGeometry, windowMaterial);
+    window2.position.set(3, 1, 4.1);
+    securityRoom.add(window2);
+    
+    // 添加保安室标识
+    const textLoader = new THREE.FontLoader();
+    textLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function(font) {
+      const textGeometry = new THREE.TextGeometry('保安室', {
+        font: font,
+        size: 1,
+        height: 0.1,
+      });
+      const textMaterial = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+      const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+      textMesh.position.set(-2.5, 2.5, 4.2);
+      securityRoom.add(textMesh);
+    });
+    
+    return securityRoom;
+  }
 
   document.addEventListener('click', (e) => {
     // 不处理canvas区域的点击，避免与Three.js交互冲突
@@ -3364,19 +3349,6 @@ function getSiloSelectedColor(obj) {
     setWeighbridgeColor(weighbridge, color);
   }
   
-  // 车辆称重模拟函数 - 已注释
-  // function simulateVehicleWeighing(weighbridge) {
-  //   const vehicleTypes = ['truck', 'car'];
-  //   const plateNumbers = ['京A12345', '沪B67890', '粤C11111', '川D22222', '鲁E33333'];
-  //   
-  //   return {
-  //     type: vehicleTypes[Math.floor(Math.random() * vehicleTypes.length)],
-  //     plateNumber: plateNumbers[Math.floor(Math.random() * plateNumbers.length)],
-  //     weight: Math.round((Math.random() * 30 + 20) * 100) / 100, // 20-50吨
-  //     driver: '模拟司机',
-  //     arrivalTime: new Date().toLocaleTimeString()
-  //   };
-  // }
 
   // 更新场景中所有地磅的显示状态
   function updateAllWeighbridgesInScene() {
@@ -4097,12 +4069,6 @@ function getSiloSelectedColor(obj) {
         placeStarSilo(2 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(2 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(2 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // 四排星仓（2个）
-        // 六排星仓（2个）
-        // placeStarSilo(10 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // placeStarSilo(10 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // placeStarSilo(10 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // placeStarSilo(10 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
       
       ];
 
@@ -4110,15 +4076,10 @@ function getSiloSelectedColor(obj) {
       console.log('✅ 所有星仓创建完成（共18个）');
       // ================= 星仓创建完成 =================
 
-      // 添加保安室 - 已注释
-      // const securityRoomX = -80; // 园区中央X位置
-      // const securityRoomZ = -(yardW / 2 - 280); // 南侧路边，距离边界10米（往南为负值）
-      // buildSecurityRoom(securityRoomX, securityRoomZ, {
-      //   length: 10,
-      //   width: 8,
-      //   height: 4,
-      //   roofHeight: 1.5
-      // });
+      // 添加保安室
+      const securityRoom = buildSecurityRoom();
+      scene.add(securityRoom);
+      console.log('✅ 保安室创建完成');
 
     } catch (error) {
       // 网络错误已在API调用中显示，这里不再重复显示
@@ -4148,13 +4109,3 @@ function getSiloSelectedColor(obj) {
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
