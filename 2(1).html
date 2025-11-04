@@ -1790,6 +1790,16 @@
       stackPositions = [
         { x: cx, z: cz, number: '2-1' }  // 单个堆垛
       ];
+    } else if (index === 105) {
+      // P05平仓：单个堆垛
+      stackPositions = [
+        { x: cx, z: cz, number: '6-1' }  // 单个堆垛
+      ];
+    } else if (index === 106) {
+      // P06平仓：单个堆垛
+      stackPositions = [
+        { x: cx, z: cz, number: '7-1' }  // 单个堆垛
+      ];
     } else {
       // 默认情况：单个堆垛
       stackPositions = [
@@ -2829,38 +2839,19 @@ function getSiloSelectedColor(obj) {
   
   // 筒仓编号映射表 - 按照实际创建顺序排列
   const siloNumberMap = {
-    // 所有筒仓编号 - 按照 rowGroupCounts: [3, 3, 3, 3, 3] 的实际创建顺序
+    // 所有筒仓编号 - 按照 rowGroupCounts: [1, 1, 1, 1, 1] 的实际创建顺序
+    // 共5排，每排1组，每组6个筒仓（从东到西排列）
     silo: [
-      // 第1排第1组 (rowGroupCounts[0] = 3组中的第1组)
-      ['T105', 'T205', 'T305', 'T405'],
-      // 第1排第2组 (rowGroupCounts[0] = 3组中的第2组) - 向西扩展
-      ['T106', 'T206', 'T306', 'T406'],
-      // 第1排第3组 (rowGroupCounts[0] = 3组中的第3组) - 向西扩展
-      ['T107', 'T207', 'T307', 'T407'],
-      // 第2排第1组 (rowGroupCounts[1] = 3组中的第1组)
-      ['T104', 'T204', 'T304', 'T404'],
-      // 第2排第2组 (rowGroupCounts[1] = 3组中的第2组) - 向西扩展
-      ['T108', 'T208', 'T308', 'T408'],
-      // 第2排第3组 (rowGroupCounts[1] = 3组中的第3组) - 向西扩展
-      ['T109', 'T209', 'T309', 'T409'],
-      // 第3排第1组 (rowGroupCounts[2] = 3组中的第1组)
-      ['T103', 'T203', 'T303', 'T403'],
-      // 第3排第2组 (rowGroupCounts[2] = 3组中的第2组) - 向西扩展
-      ['T110', 'T210', 'T310', 'T410'],
-      // 第3排第3组 (rowGroupCounts[2] = 3组中的第3组) - 向西扩展
-      ['T111', 'T211', 'T311', 'T411'],
-      // 第4排第1组 (rowGroupCounts[3] = 3组中的第1组)
-      ['T102', 'T202', 'T302', 'T402'],
-      // 第4排第2组 (rowGroupCounts[3] = 3组中的第2组) - 向西扩展
-      ['T112', 'T212', 'T312', 'T412'],
-      // 第4排第3组 (rowGroupCounts[3] = 3组中的第3组) - 向西扩展
-      ['T113', 'T213', 'T313', 'T413'],
-      // 第5排第1组 (rowGroupCounts[4] = 3组中的第1组)
-      ['T101', 'T201', 'T301', 'T401'],
-      // 第5排第2组 (rowGroupCounts[4] = 3组中的第2组) - 向西扩展
-      ['T114', 'T214', 'T314', 'T414'],
-      // 第5排第3组 (rowGroupCounts[4] = 3组中的第3组) - 向西扩展
-      ['T115', 'T215', 'T315', 'T415']
+      // 第1排（最北侧） - 6个筒仓从东到西（T601在最东，T101在最西）
+      ['T601', 'T501', 'T401', 'T301', 'T201', 'T101'],
+      // 第2排 - 6个筒仓从东到西
+      ['T602', 'T502', 'T402', 'T302', 'T202', 'T102'],
+      // 第3排 - 6个筒仓从东到西
+      ['T603', 'T503', 'T403', 'T303', 'T203', 'T103'],
+      // 第4排 - 6个筒仓从东到西
+      ['T604', 'T504', 'T404', 'T304', 'T204', 'T104'],
+      // 第5排（最南侧） - 6个筒仓从东到西
+      ['T605', 'T505', 'T405', 'T305', 'T205', 'T105']
     ],
   };
 
@@ -3566,7 +3557,7 @@ function getSiloSelectedColor(obj) {
     const totalRowSpan = cols * wL + (cols - 1) * gap;
     const leftStart = -totalRowSpan / 2 + wL / 2 + 120; // 将仓库#A向东移动（增加X坐标）
 
-    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5) + 20; // 向北移动10米（增加Z坐标）
+    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5) + 40; // 向北移动20米（增加Z坐标）
     const rowZs = [zRowOffset];
 
     // 创建#A仓库（主仓库）- 保持原始位置不变
@@ -3606,6 +3597,18 @@ function getSiloSelectedColor(obj) {
       },
       'P04': { 
         xOffset: 0, 
+        zOffset: -80,
+        scale: 1, // 模型缩放比例
+        enabled: true
+      },
+      'P05': { 
+        xOffset: -70, 
+        zOffset: -80,
+        scale: 1, // 模型缩放比例
+        enabled: true
+      },
+      'P06': { 
+        xOffset: -140, 
         zOffset: -80,
         scale: 1, // 模型缩放比例
         enabled: true
