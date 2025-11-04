@@ -1385,6 +1385,11 @@
     registerPickable(obj);
     interactives.push(obj);
     interactiveSet.add(obj);
+    
+    // 调试：记录注册的对象信息，特别是堆垛类型
+    if (obj.userData && (obj.userData.type === '平仓' || obj.userData.编号?.toString().match(/^[0-9]+-[0-9]+$/))) {
+      console.log('已注册堆垛对象:', obj.userData.编号 || obj.userData.id, '类型:', obj.userData.type);
+    }
   }
   let hovered = null;
   let selected = null;
@@ -1837,7 +1842,7 @@
 
   // 交互逻辑
   const raycaster = new THREE.Raycaster();
-  raycaster.params.Line.threshold = 2;
+  raycaster.params.Line.threshold = 5; // 增加线框检测阈值，提高点击成功率
   const mouse = new THREE.Vector2();
   function resolveInteractiveTarget(object) {
     let current = object;
@@ -1859,6 +1864,12 @@
           return current;
         } else if (userData?.id?.toString().match(/^[0-9]+-[0-9]+$/)) {
           // 临时修复：如果ID匹配平仓格式（如"5-1", "5-2"），也认为是平仓
+          return current;
+        } else if (userData?.编号?.toString().match(/^[0-9]+-[0-9]+$/)) {
+          // 额外检查：通过编号字段识别堆垛
+          return current;
+        } else if (userData?.originalType?.includes('平仓')) {
+          // 通过原始类型识别平仓堆垛
           return current;
         } else if (userData?.type === '地磅') {
           // 地磅可以交互
@@ -2440,16 +2451,19 @@ function getSiloSelectedColor(obj) {
     }
   }
 
-  function handleClick(e) {
-    // 事件冒泡已在调用此函数前被阻止，这里不需要再次处理
-    
-    if (!hovered) {
-      return; // 移除权限检查，只要有悬停对象就可以点击
+  function handleClickOnTarget(e, targetObject) {
+    // 新的更可靠的点击处理函数
+    if (!targetObject) {
+      return;
     }
-    if (selected === hovered) {
+    
+    // 如果点击的是已选中的对象，则取消选择
+    if (selected === targetObject) {
       clearSelection();
       return;
     }
+    
+    // 清除之前的选择状态
     if (selected) {
       const selectedType = selected.userData?.type;
       if (selectedType === '地磅') {
@@ -2458,9 +2472,12 @@ function getSiloSelectedColor(obj) {
         setStackColor(selected, getStackBaseColor(selected));
       }
     }
-    selected = hovered;
+    
+    // 设置新的选择对象
+    selected = targetObject;
     const selectedType = selected.userData?.type;
     let selectedColor;
+    
     if (selectedType === '筒仓') {
       selectedColor = getSiloSelectedColor(selected);
     } else if (selectedType === '星仓') {
@@ -2474,11 +2491,13 @@ function getSiloSelectedColor(obj) {
       selectedColor = lineColors.selected;
     }
     
+    // 应用选中颜色
     if (selectedType === '地磅') {
       setWeighbridgeColor(selected, selectedColor);
     } else {
       setStackColor(selected, selectedColor);
     }
+    
     updateDetailPanel();
     
     // 检查选中的对象类型，只有仓库本身才显示仓库信息，堆垛不显示
@@ -2501,6 +2520,18 @@ function getSiloSelectedColor(obj) {
     updateActionBar();
   }
 
+  function handleClick(e) {
+    // 保留原handleClick函数以兼容其他可能的调用
+    // 事件冒泡已在调用此函数前被阻止，这里不需要再次处理
+    
+    if (!hovered) {
+      return; // 移除权限检查，只要有悬停对象就可以点击
+    }
+    
+    // 使用新的handleClickOnTarget函数处理点击
+    handleClickOnTarget(e, hovered);
+  }
+
   renderer.domElement.addEventListener('mousemove', handlePointerMove);
   renderer.domElement.addEventListener('mouseleave', clearHover);
   // 统一的点击处理函数，避免多重事件监听器导致的冒泡问题
@@ -2509,10 +2540,25 @@ function getSiloSelectedColor(obj) {
     ev.stopPropagation();
     ev.preventDefault();
     
+    // 重新计算鼠标位置和射线检测，确保点击时的精确性
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
     
-    // 处理对象选择逻辑
-    if (hovered) {
-      handleClick(ev);
+    // 重新进行射线检测以确保获得最新的交互目标
+    const allHits = raycaster.intersectObjects(raycastTargets, true);
+    let clickTarget = null;
+    
+    if (allHits.length > 0) {
+      clickTarget = resolveInteractiveTarget(allHits[0].object);
+    }
+    
+    // 处理对象选择逻辑 - 使用点击时重新检测到的目标
+    if (clickTarget || hovered) {
+      // 优先使用点击时检测到的目标，如果没有则使用悬停目标
+      const targetToSelect = clickTarget || hovered;
+      handleClickOnTarget(ev, targetToSelect);
     } else {
       clearSelection();
     }
