@@ -640,6 +640,11 @@
     weighbridge: 0x4A4A4A,
     weighbridgeHover: 0x5A5A5A,
     weighbridgeSelected: 0x6A6A6A,
+    // 星仓颜色配置
+    starSilo: 0xffc75f,           // 星仓基础颜色（金黄色）
+    starSiloOwnerJF: 0xffb347,    // 建发集团星仓颜色（橙黄色）
+    starSiloHover: 0xffd700,      // 星仓悬浮颜色（金色）
+    starSiloSelected: 0xff8c00,   // 星仓选中颜色（深橙色）
   };
 
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
@@ -1900,6 +1905,9 @@
         if (userData?.type === '筒仓') {
           // 筒仓无论是否有数据都可以悬停显示名称
           return current;
+        } else if (userData?.type === '星仓') {
+          // 星仓无论是否有数据都可以悬停显示名称
+          return current;
         } else if (userData?.type?.startsWith('平仓P')) {
           // 所有平仓都可以交互，无论是否有物料数据
           return current;
@@ -1984,6 +1992,48 @@
         <div>状态: <span style="color: ${statusColor}; font-weight: bold;">${status}</span></div>
         ${vehicleInfo}
       `;
+    } else if (type === '星仓') {
+      // 星仓悬停信息
+      const cap = obj.userData?.最大容量_t || '-';
+      const current = obj.userData?.当前储量_t || '0';
+      const materials = obj.userData?.物料详情 || [];
+      const arms = obj.userData?.星角数 || 5;
+      const specialMark = obj.userData?.特殊标识;
+      
+      let materialInfo = '';
+      if (materials.length > 0) {
+        materialInfo = '<div style="margin-top: 6px; font-size: 12px;">';
+        materials.forEach(m => {
+          const colorData = parseColor(m.companyColor);
+          const companyColor = colorData.css || '#666666';
+          const isNegative = parseFloat(m.amount) < 0;
+          const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
+          const negativeIcon = isNegative ? '⬇️ ' : '';
+          materialInfo += `<div style="margin: 2px 0; display: flex; align-items: center;">
+            <div style="width: 10px; height: 10px; background: ${companyColor}; border-radius: 2px; margin-right: 6px; border: 1px solid #ccc;"></div>
+            <span style="color: ${companyColor}; font-weight: bold;">${m.company}: <span style="${amountStyle}">${negativeIcon}${m.amount}吨</span> ${m.material}</span>
+          </div>`;
+        });
+        materialInfo += '</div>';
+      } else {
+        // 当没有物料数据时显示空仓状态
+        materialInfo = '<div style="margin-top: 6px; font-size: 12px; color: #888;">暂无物料数据</div>';
+      }
+      
+      // 添加星仓特有信息
+      let specialInfo = '';
+      if (specialMark) {
+        specialInfo = `<div style="margin-top: 4px; font-size: 11px; color: #ff6b35; font-weight: bold;">⭐ ${specialMark}</div>`;
+      }
+      
+      infoPanel.innerHTML = `
+        <div><b>⭐ 星仓 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
+        <div>容量: ${cap} 吨</div>
+        <div>当前: ${current} 吨</div>
+        <div>星角: ${arms}角</div>
+        ${specialInfo}
+        ${materialInfo}
+      `;
     } else {
       // 平仓悬停信息
       const v = obj.userData?.体积_m3;
@@ -2047,7 +2097,8 @@ function setStackColor(obj, color) {
 
     const type = obj.userData?.type;
     const isCylindricalSilo = type === '筒仓';
-    const isSilo = isCylindricalSilo;
+    const isStarSilo = type === '星仓';
+    const isSilo = isCylindricalSilo || isStarSilo;
     const hasMaterialData = obj.userData?.hasMaterialData === true;
 
     let targetColor = color;
@@ -2094,6 +2145,7 @@ function getStackBaseColor(obj) {
     const owner = obj?.userData?.owner;
     const showCompanyColor = obj?.userData?.hasMaterialData === true;
     const isCylindricalSilo = type === '筒仓';
+    const isStarSilo = type === '星仓';
     const hasNumber = obj?.userData?.编号 && obj?.userData?.编号 !== '未分配';
 
     if (isCylindricalSilo) {
@@ -2105,6 +2157,11 @@ function getStackBaseColor(obj) {
       }
       return owner === 'JF' ? lineColors.siloOwnerJF : lineColors.silo;
     }
+    
+    if (isStarSilo) {
+      return getStarSiloBaseColor(obj);
+    }
+    
     if (!showCompanyColor) {
       return lineColors.stack;
     }
@@ -2119,6 +2176,25 @@ function getSiloHoverColor(obj) {
 function getSiloSelectedColor(obj) {
     const type = obj?.userData?.type;
     return lineColors.siloSelected;
+  }
+
+  // 星仓颜色处理函数
+  function getStarSiloBaseColor(obj) {
+    const owner = obj?.userData?.owner;
+    const showCompanyColor = obj?.userData?.hasMaterialData === true;
+    
+    if (!showCompanyColor) {
+      return emptySiloColor; // 没有物料数据时使用空仓颜色
+    }
+    return owner === 'JF' ? lineColors.starSiloOwnerJF : lineColors.starSilo;
+  }
+
+  function getStarSiloHoverColor(obj) {
+    return lineColors.starSiloHover;
+  }
+
+  function getStarSiloSelectedColor(obj) {
+    return lineColors.starSiloSelected;
   }
 
   function clearHover() {
@@ -2263,6 +2339,60 @@ function getSiloSelectedColor(obj) {
         ${vehicleDetailsHtml}
         ${dataSourceHtml}
       `;
+    } else if (ud.type === '星仓') {
+      // 处理星仓详情
+      const typeLabel = '⭐ 星仓详情';
+      const materials = ud.物料详情 || [];
+      
+      let materialsHtml = '';
+      if (materials.length > 0) {
+        materialsHtml = '<div style="margin-top: 8px;"><b>物料详情:</b></div>';
+        materials.forEach((m, index) => {
+          const colorData = parseColor(m.companyColor);
+          const companyColor = colorData.css || '#666666';
+          const isNegative = parseFloat(m.amount) < 0;
+          const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
+          const negativeIcon = isNegative ? '⬇️ ' : '';
+          const negativeLabel = isNegative ? ' (出库)' : '';
+          materialsHtml += `
+            <div style="background: #fff8e1; padding: 6px; margin: 4px 0; border-radius: 4px; border-left: 3px solid ${companyColor};">
+              <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                <div style="width: 12px; height: 12px; background: ${companyColor}; border-radius: 2px; margin-right: 8px; border: 1px solid #ccc;"></div>
+                <span style="font-weight: bold; color: ${companyColor};">${m.company}${negativeLabel}</span>
+              </div>
+              <div style="font-size: 13px;">物料: ${m.material} | 数量: <span style="${amountStyle}">${negativeIcon}${m.amount} 吨</span></div>
+              <div style="font-size: 12px; color: #666;">入仓时间: ${m.storageDate}</div>
+            </div>
+          `;
+        });
+      } else {
+        materialsHtml = '<div style="margin-top: 8px; color: #888;">暂无物料</div>';
+      }
+      
+      // 数据来源信息
+      let dataSourceHtml = '';
+      if (ud.数据来源 && ud.更新时间) {
+        dataSourceHtml = `
+          <div style="margin-top: 8px; padding: 4px; background: #f0f0f0; border-radius: 4px; font-size: 11px; color: #666;">
+            数据来源: ${ud.数据来源} | 更新时间: ${ud.更新时间}
+          </div>
+        `;
+      }
+      
+      detailPanel.innerHTML = `
+        <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
+        ${ud.特殊标识 ? `<div style="color: #ff6b35; font-weight: bold; text-align: center; margin-bottom: 6px; background: #fff3e0; padding: 4px; border-radius: 4px;">⭐ ${ud.特殊标识}</div>` : ''}
+        <div>半径: ${ud.半径_m} 米</div>
+        <div>高度: ${ud.高度_m} 米</div>
+        <div>星角数: ${ud.星角数 || 5} 角</div>
+        <div>容积: ${ud.容积_m3} m³</div>
+        <div>最大容量: ${ud.最大容量_t} 吨</div>
+        <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
+        <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
+        <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
+        ${materialsHtml}
+        ${dataSourceHtml}
+      `;
     } else {
       // 处理平仓详情
       const materials = ud.物料详情 || [];
@@ -2335,6 +2465,8 @@ function getSiloSelectedColor(obj) {
         let hoverColor;
         if (hoveredType === '筒仓') {
           hoverColor = getSiloHoverColor(hovered);
+        } else if (hoveredType === '星仓') {
+          hoverColor = getStarSiloHoverColor(hovered);
         } else if (hoveredType === '地磅') {
           hoverColor = lineColors.weighbridgeHover;
         } else {
@@ -2373,6 +2505,8 @@ function getSiloSelectedColor(obj) {
     let selectedColor;
     if (selectedType === '筒仓') {
       selectedColor = getSiloSelectedColor(selected);
+    } else if (selectedType === '星仓') {
+      selectedColor = getStarSiloSelectedColor(selected);
     } else if (selectedType === '地磅') {
       selectedColor = lineColors.weighbridgeSelected;
     } else {
@@ -2853,20 +2987,18 @@ function getSiloSelectedColor(obj) {
       // 第5排（最南侧） - 6个筒仓从东到西
       ['T605', 'T505', 'T405', 'T305', 'T205', 'T105']
     ],
-    // 星仓编号 - 按照实际创建顺序分配（共18个）
+    // 星仓编号 - 按照地理位置从西到东、从北到南排列（共20个）
     starSilo: [
-      // 第一组（一排星仓）：4个星仓
-      ['X104', 'X101', 'X103', 'X102'],
-      // 第二组（二排星仓）：4个星仓
-      ['X204', 'X203', 'X202', 'X201'],
-      // 第三组（三排星仓）：4个星仓
-      ['X304', 'X303', 'X302', 'X301'],
-      // 第四组（四排星仓）：2个星仓
-      ['X402', 'X401'],
-      // 第五组（五排星仓）：2个星仓
-      ['X502', 'X501'],
-      // 第六组（六排星仓）：2个星仓
-      ['X602', 'X601']
+      // 第1排（最北侧）：4个星仓，从西到东
+      ['X501', 'X502', 'X503', 'X504'],
+      // 第2排：4个星仓，从西到东
+      ['X401', 'X402', 'X403', 'X404'],
+      // 第3排：4个星仓，从西到东
+      ['X301', 'X302', 'X303', 'X304'],
+      // 第4排：4个星仓，从西到东
+      ['X201', 'X202', 'X203', 'X204'],
+      // 第5排（最南侧）：4个星仓，从西到东
+      ['X101', 'X102', 'X103', 'X104']
     ]
   };
 
@@ -3969,35 +4101,39 @@ function getSiloSelectedColor(obj) {
 
       // 并行创建所有星仓（共18个）
       const starSiloPromises = [
-        // 一排星仓
+        // 一排星仓（4个）
         placeStarSilo(-35 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-35 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-35 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-35 + starSiloConfig.xOffset, -45.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // // 二排星仓
+        placeStarSilo(-35 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        // 二排星仓（4个）
         placeStarSilo(-25 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-25 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-25 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-25 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // // 三排星仓
+        // 三排星仓（4个）
         placeStarSilo(-15 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-15 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-15 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-15 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // // 四排星仓
+        // 四排星仓（2个）
         placeStarSilo(-6 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-6 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-6 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(-6 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        placeStarSilo(-6 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // // 五排星仓
+        // 四排星仓（2个）
+        // 五排星仓（2个）
         placeStarSilo(2 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(2 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(2 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
         placeStarSilo(2 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // // 六排星仓
-        // placeStarSilo(28.92 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
-        // placeStarSilo(28.92 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
+        // 四排星仓（2个）
+        // 六排星仓（2个）
+        // placeStarSilo(10 + starSiloConfig.xOffset, -24.30 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        // placeStarSilo(10 + starSiloConfig.xOffset, -35.00 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        // placeStarSilo(10 + starSiloConfig.xOffset, -45.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false }),
+        // placeStarSilo(10 + starSiloConfig.xOffset, -56.50 + starSiloConfig.zOffset, 49, { outerRadius: 2.0, innerRadius: 1.1, arms: 5, addDetails: false })
+      
       ];
 
       await Promise.all(starSiloPromises);
