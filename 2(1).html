@@ -1305,7 +1305,10 @@
     if (siloNumber) {
       // 优先使用传入的编号查找
       targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === siloNumber);
-      console.log(`使用编号查找筒仓: ${siloNumber}`, targetSilo ? '找到' : '未找到');
+      console.log(`🔍 使用编号查找筒仓: ${siloNumber}`, targetSilo ? '✅找到' : '❌未找到');
+      if (!targetSilo) {
+        console.log(`📋 当前API数据中的所有编号:`, allSilosData.siloList.map(s => s.siloInfo.id));
+      }
     }
     
     // 如果按编号未找到，不使用备用映射，直接返回空数据
@@ -1826,6 +1829,7 @@
       // 从API获取平仓的真实数据
       let apiData;
       try {
+        console.log(`🔍 正在获取平仓 ${stackNumber} 的数据...`);
         apiData = await fetchSiloAndMaterialData({
           siloId: id,
           siloNumber: stackNumber, // 使用对应的平仓编号
@@ -1836,7 +1840,9 @@
           capacity: (vol * 0.75).toFixed(1) // 假设密度0.75吨/立方米
         });
         
-        console.log(`成功获取${stackNumber}数据:`, apiData);
+        console.log(`✅ 成功获取${stackNumber}数据:`, apiData);
+        console.log(`📊 ${stackNumber} 物料详情:`, apiData.materialDetails);
+        console.log(`🏢 ${stackNumber} 筒仓信息:`, apiData.siloInfo);
       } catch (error) {
         console.error(`获取${stackNumber}数据失败:`, error);
         // API调用失败时，使用空数据
@@ -1857,9 +1863,26 @@
         ? materialDetails.filter(m => Number.isFinite(toNumber(m?.amount)) && Math.abs(toNumber(m.amount)) > 1e-6)
         : [];
       const hasMaterialData = activeMaterials.length > 0;
+      
+      console.log(`🧮 ${stackNumber} 数据处理结果:`);
+      console.log(`   - 原始物料数组长度: ${Array.isArray(materialDetails) ? materialDetails.length : '不是数组'}`);
+      console.log(`   - 有效物料数量: ${activeMaterials.length}`);
+      console.log(`   - 是否有物料数据: ${hasMaterialData}`);
+      console.log(`   - 筒仓所有者: ${siloInfo?.owner}`);
+      if (activeMaterials.length > 0) {
+        console.log(`   - 有效物料列表:`, activeMaterials.map(m => `${m.materialName}: ${m.amount}`));
+      }
 
+      // 调试：输出siloInfo的详细信息
+      console.log(`🔍 ${stackNumber} siloInfo详情:`, siloInfo);
+      console.log(`🔍 ${stackNumber} siloInfo.type:`, siloInfo.type, typeof siloInfo.type);
+      
+      const finalType = siloInfo.type || `平仓${stackNumber}`;
+      console.log(`🔍 ${stackNumber} 最终类型:`, finalType);
+      
       stack.userData = {
-        type: siloInfo.type || `平仓${stackNumber}`,
+        type: '平仓', // 设置为平仓类型，以便正确处理选中颜色
+        originalType: finalType, // 保留原始类型信息用于显示
         id: siloInfo.id || stackNumber,
         编号: siloInfo.id || stackNumber,
         owner: hasMaterialData ? siloInfo.owner : undefined,
@@ -1876,8 +1899,12 @@
         whInfo
       };
 
-      // 根据是否有物料数据设置颜色
-      const baseColor = hasMaterialData && siloInfo.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
+      // 根据是否有物料数据设置颜色：有数据显示绿色，无数据显示灰色
+      const baseColor = hasMaterialData ? lineColors.ownerJF : lineColors.stack;
+      console.log(`🎨 ${stackNumber} 颜色设置:`);
+      console.log(`   - 有物料数据: ${hasMaterialData}`);
+      console.log(`   - 所有者: ${siloInfo?.owner}`);
+      console.log(`   - 选择的颜色: ${hasMaterialData ? '绿色(有数据)' : '灰色(无数据)'} (0x${baseColor.toString(16)})`);
       setStackColor(stack, baseColor);
 
       scene.add(stack);
@@ -1902,14 +1929,20 @@
       // 检查当前对象是否在可交互集合中
       if (interactiveSet.has(current)) {
         const userData = current.userData;
+        console.log('🎯 检查交互目标:', userData?.type, userData?.id);
         if (userData?.type === '筒仓') {
           // 筒仓无论是否有数据都可以悬停显示名称
           return current;
         } else if (userData?.type === '星仓') {
           // 星仓无论是否有数据都可以悬停显示名称
           return current;
-        } else if (userData?.type?.startsWith('平仓P')) {
+        } else if (userData?.type?.startsWith('平仓')) {
           // 所有平仓都可以交互，无论是否有物料数据
+          console.log('✅ 平仓交互目标确认:', userData.type, userData.id);
+          return current;
+        } else if (userData?.id?.toString().match(/^[0-9]+-[0-9]+$/)) {
+          // 临时修复：如果ID匹配平仓格式（如"5-1", "5-2"），也认为是平仓
+          console.log('🔧 临时修复：通过ID格式识别为平仓:', userData.type, userData.id);
           return current;
         } else if (userData?.type === '地磅') {
           // 地磅可以交互
@@ -2061,7 +2094,7 @@
       }
       
       infoPanel.innerHTML = `
-        <div><b>${obj.userData?.type || '平仓'} ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
+        <div><b>平仓 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
         <div>体积: ${v} m³</div>
         <div>容量: ${cap} 吨</div>
         <div>当前: ${current} 吨</div>
@@ -2146,6 +2179,7 @@ function getStackBaseColor(obj) {
     const showCompanyColor = obj?.userData?.hasMaterialData === true;
     const isCylindricalSilo = type === '筒仓';
     const isStarSilo = type === '星仓';
+    const isFlat = type === '平仓';
     const hasNumber = obj?.userData?.编号 && obj?.userData?.编号 !== '未分配';
 
     if (isCylindricalSilo) {
@@ -2162,10 +2196,19 @@ function getStackBaseColor(obj) {
       return getStarSiloBaseColor(obj);
     }
     
+    if (isFlat) {
+      // 平仓颜色逻辑：有数据显示绿色，无数据显示灰色
+      if (!showCompanyColor) {
+        return lineColors.stack;
+      }
+      return lineColors.ownerJF; // 有数据的平仓统一显示绿色
+    }
+    
+    // 其他类型的堆垛
     if (!showCompanyColor) {
       return lineColors.stack;
     }
-    return owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
+    return lineColors.ownerJF;
   }
 
 function getSiloHoverColor(obj) {
@@ -2423,7 +2466,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">${ud.type || '平仓'}详情 #${ud.编号 || ud.id}</div>
+        <div style="font-weight:600;margin-bottom:6px;">详情 #${ud.编号 || ud.id}</div>
         <div>最大堆叠体积: ${ud.体积_m3} m³</div>
         <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
@@ -2449,9 +2492,11 @@ function getSiloSelectedColor(obj) {
 
     // 只考虑最近的第一个交互对象，避免穿透空筒仓命中后方目标
     if (allHits.length > 0) {
+      console.log('🎯 射线检测结果:', allHits.length, '个对象, 第一个:', allHits[0].object.userData?.type, allHits[0].object.userData?.id);
+      console.log('🔍 射线检测到的对象完整userData:', allHits[0].object.userData);
       target = resolveInteractiveTarget(allHits[0].object);
       if (!target && allHits.length > 0) {
-        console.log('射线检测到对象但无法解析为交互目标:', allHits[0].object.userData?.type, '射线目标总数:', raycastTargets.length, '交互对象总数:', interactives.length);
+        console.log('❌ 射线检测到对象但无法解析为交互目标:', allHits[0].object.userData?.type, '射线目标总数:', raycastTargets.length, '交互对象总数:', interactives.length);
       }
     }
     if (target) {
@@ -2487,8 +2532,16 @@ function getSiloSelectedColor(obj) {
 
   function handleClick(e) {
     // 事件冒泡已在调用此函数前被阻止，这里不需要再次处理
-    if (!hovered) return; // 移除权限检查，只要有悬停对象就可以点击
+    console.log('🎯 handleClick函数被调用');
+    console.log('   - hovered对象:', hovered?.userData?.type, hovered?.userData?.id);
+    console.log('   - selected对象:', selected?.userData?.type, selected?.userData?.id);
+    
+    if (!hovered) {
+      console.log('❌ 没有悬停对象，退出');
+      return; // 移除权限检查，只要有悬停对象就可以点击
+    }
     if (selected === hovered) {
+      console.log('🔄 点击了已选中的对象，清除选择');
       clearSelection();
       return;
     }
@@ -2509,6 +2562,9 @@ function getSiloSelectedColor(obj) {
       selectedColor = getStarSiloSelectedColor(selected);
     } else if (selectedType === '地磅') {
       selectedColor = lineColors.weighbridgeSelected;
+    } else if (selectedType === '平仓') {
+      // 平仓选中时显示红色
+      selectedColor = lineColors.selected;
     } else {
       selectedColor = lineColors.selected;
     }
@@ -2519,8 +2575,12 @@ function getSiloSelectedColor(obj) {
       setStackColor(selected, selectedColor);
     }
     updateDetailPanel();
+    
+    // 检查选中的对象类型，只有仓库本身才显示仓库信息，堆垛不显示
+    const isWarehouse = selectedType === '仓库';
     const info = selected.userData?.whInfo;
-    if (info) {
+    
+    if (info && isWarehouse) {
       whPanel.innerHTML = `
           <div style="font-weight:600;margin-bottom:6px;">仓库 ${info.id}</div>
           <div>面积: ${info.area} m²</div>
@@ -2544,10 +2604,14 @@ function getSiloSelectedColor(obj) {
     ev.stopPropagation();
     ev.preventDefault();
     
-    console.log('Canvas点击事件触发, hovered:', hovered?.userData?.type, hovered?.userData?.id);
+    console.log('🖱️ Canvas点击事件触发');
+    console.log('   - 当前悬停对象:', hovered?.userData?.type, hovered?.userData?.id);
+    console.log('   - 射线目标总数:', raycastTargets.length);
+    console.log('   - 交互对象总数:', interactives.length);
     
     // 处理对象选择逻辑
     if (hovered) {
+      console.log('✅ 调用handleClick处理悬停对象');
       handleClick(ev);
     } else {
       clearSelection();
