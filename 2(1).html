@@ -1386,10 +1386,6 @@
     interactives.push(obj);
     interactiveSet.add(obj);
     
-    // 调试：记录注册的对象信息，特别是堆垛类型
-    if (obj.userData && (obj.userData.type === '平仓' || obj.userData.编号?.toString().match(/^[0-9]+-[0-9]+$/))) {
-      console.log('已注册堆垛对象:', obj.userData.编号 || obj.userData.id, '类型:', obj.userData.type);
-    }
   }
   let hovered = null;
   let selected = null;
@@ -3552,7 +3548,6 @@ function getSiloSelectedColor(obj) {
     state.currentWeight = vehicleInfo.weight;
     state.isWeighing = true;
     
-    console.log(`✅ 车辆已添加到地磅 ${weighbridgeId}: ${vehicleInfo.plateNumber}`);
   }
   
   // 更新车辆信息
@@ -3607,7 +3602,6 @@ function getSiloSelectedColor(obj) {
       weighbridgeId: id,
       weighbridgeNumber: id
     }).then(fetchedData => {
-      console.log(`✅ 地磅 ${id} API数据获取成功，更新信息`);
       // 更新地磅的userData
       if (group && group.userData) {
         const { weighbridgeInfo } = fetchedData;
@@ -3685,7 +3679,6 @@ function getSiloSelectedColor(obj) {
     if (state.hasVehicle) return; // 已有车辆
     
     // 模拟车辆称重功能已禁用，仅使用API数据
-    console.log(`车辆上磅请求: ${weighbridgeId} - 已禁用模拟数据，仅使用API数据`);
     return;
     
     // 以下模拟代码已注释 - 仅使用API数据
@@ -3769,7 +3762,6 @@ function getSiloSelectedColor(obj) {
     weighbridge.userData.到达时间 = '';
     weighbridge.userData.使用次数++;
     
-    console.log(`车辆下磅: ${weighbridgeId}${isApiDriven ? ' (API驱动)' : ' (模拟驱动)'}`);
     
     // 模拟定时器已注释 - 仅使用API数据
     // // 只有在非API驱动的情况下才设置下一辆车上磅的定时器
@@ -4037,7 +4029,6 @@ function getSiloSelectedColor(obj) {
 
 
       // 添加地磅 - 立即渲染，不等待任何条件
-      console.log('🚀 开始立即添加地磅...');
       
       // 立即创建地磅，不使用await等待，确保立即渲染
       placeWeighbridge(110, -75, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
@@ -4045,7 +4036,6 @@ function getSiloSelectedColor(obj) {
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
       }).then(() => {
-        console.log('✅ 1号磅渲染完成');
       }).catch(error => {
       });
       
@@ -4054,7 +4044,6 @@ function getSiloSelectedColor(obj) {
         width: 10, 
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
       }).then(() => {
-        console.log('✅ 2号磅渲染完成');
       }).catch(error => {
       });
       
@@ -4063,7 +4052,6 @@ function getSiloSelectedColor(obj) {
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
       }).then(() => {
-        console.log('✅ 3号磅渲染完成');
       }).catch(error => {
       });
       
@@ -4072,14 +4060,11 @@ function getSiloSelectedColor(obj) {
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
       }).then(() => {
-        console.log('✅ 4号磅渲染完成');
       }).catch(error => {
       });
       
-      console.log('🎯 地磅立即渲染启动完成（不等待API数据）');
 
       // ================= 添加星仓 =================
-      console.log('🌟 开始创建星仓...');
       
       // 星仓偏移量配置
       const starSiloConfig = {
@@ -4119,13 +4104,11 @@ function getSiloSelectedColor(obj) {
       ];
 
       await Promise.all(starSiloPromises);
-      console.log('✅ 所有星仓创建完成（共18个）');
       // ================= 星仓创建完成 =================
 
       // 添加保安室
       const securityRoom = buildSecurityRoom();
       scene.add(securityRoom);
-      console.log('✅ 保安室创建完成');
 
     } catch (error) {
       // 网络错误已在API调用中显示，这里不再重复显示
@@ -4138,7 +4121,6 @@ function getSiloSelectedColor(obj) {
     updateCompass();
     
     // 初始化完成后启动自动刷新
-    console.log('🎯 场景初始化完成，启动地磅数据自动刷新');
     startAutoRefresh();
   }
 
