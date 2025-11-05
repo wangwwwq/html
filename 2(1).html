@@ -549,7 +549,7 @@
       };
     } else {
       return {
-        stackSize: {length: 40, width: 30, height: 8},
+        stackSize: {length: 40, width: 30, height: 8},  // 增加堆垛长度从40到60
         spacing: 5,
         margin: 5
       };
@@ -1719,14 +1719,16 @@
     let stackPositions;
     
     if (index < 100) {
-      // #A仓库：单个堆垛，命名为 2-1
+      // #A仓库：2个堆垛，左右各1个
+      const stackSpacingX = sx * 1.2;  // 东西方向间距（增大拉开距离）
       stackPositions = [
-        { x: cx, z: cz, number: '2-1' }  // 统一命名为 2-1
+        { x: cx - stackSpacingX, z: cz, number: '2号库' },  // 左侧堆垛
+        { x: cx + stackSpacingX, z: cz, number: '1号库' }   // 右侧堆垛
       ];
     } else if (index === 101) {
       // P01平仓：1个堆垛（保留中间的）
       stackPositions = [
-        { x: cx, z: cz, number: '5-2' }                      // 中心堆垛
+        { x: cx, z: cz, number: '3号库' }                      // 中心堆垛
       ];
     } else if (index === 102) {
       // P02平仓：3个堆垛从南到北排列
