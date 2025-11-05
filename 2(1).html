@@ -1603,6 +1603,62 @@
     }
   }
 
+  // 铁路建造函数
+  function buildRailway(length, zOffset = 0, xOffset = 0) {
+    const halfL = length / 2;
+    const trackGauge = 1.435; // 标准轨距（米）
+    const railHeight = 0.15; // 钢轨高度
+    const tieWidth = 2.5; // 枕木宽度
+    const tieSpacing = 0.6; // 枕木间距
+    const tieThickness = 0.2; // 枕木厚度
+    
+    const y = 0.05; // 铁轨高度
+    
+    // 钢轨材质（深灰色金属）
+    const railMaterial = new THREE.LineBasicMaterial({color: 0x555555});
+    
+    // 枕木材质（棕色木材）
+    const tieMaterial = new THREE.LineBasicMaterial({color: 0x8B4513});
+    
+    // 创建两条轨道（左右）
+    const leftRailZ = -trackGauge / 2;
+    const rightRailZ = trackGauge / 2;
+    
+    // 左侧轨道
+    const leftRailGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-halfL + xOffset, y, leftRailZ + zOffset),
+      new THREE.Vector3(halfL + xOffset, y, leftRailZ + zOffset)
+    ]);
+    const leftRail = new THREE.Line(leftRailGeom, railMaterial);
+    scene.add(leftRail);
+    
+    // 右侧轨道
+    const rightRailGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-halfL + xOffset, y, rightRailZ + zOffset),
+      new THREE.Vector3(halfL + xOffset, y, rightRailZ + zOffset)
+    ]);
+    const rightRail = new THREE.Line(rightRailGeom, railMaterial);
+    scene.add(rightRail);
+    
+    // 添加枕木
+    for (let x = -halfL; x <= halfL; x += tieSpacing) {
+      const tieGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x + xOffset, y - 0.02, -tieWidth / 2 + zOffset),
+        new THREE.Vector3(x + xOffset, y - 0.02, tieWidth / 2 + zOffset)
+      ]);
+      const tie = new THREE.Line(tieGeom, tieMaterial);
+      scene.add(tie);
+      
+      // 添加枕木的横向线条以增加立体感
+      const tieTopGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x - tieThickness / 2 + xOffset, y, -tieWidth / 2 + zOffset),
+        new THREE.Vector3(x - tieThickness / 2 + xOffset, y, tieWidth / 2 + zOffset)
+      ]);
+      const tieTop = new THREE.Line(tieTopGeom, tieMaterial);
+      scene.add(tieTop);
+    }
+  }
+
   function buildWarehouse({length, width, height, roofHeight}, centerX, centerZ, index) {
     const group = new THREE.Group();
     group.position.set(centerX, 0, centerZ);
@@ -3893,6 +3949,12 @@ function getSiloSelectedColor(obj) {
     const roadZOffset = 40; // 道路向北移动40米（正值向北）
     buildMainRoad(roadWidth, yardL, roadZOffset);
     buildSidewalkTrees(roadWidth, yardL, 10, roadZOffset);
+    
+    // 添加2条铁路
+    // 第一条铁路：位于道路南侧
+    buildRailway(yardL, -30, 0); // Z偏移-30米（道路南侧）
+    // 第二条铁路：位于道路更南侧
+    buildRailway(yardL, -40, 0); // Z偏移-40米（更南侧）
 
     const {length: wL, width: wW, height: wH, roofHeight: rH, gap} = cfg.warehouse;
     const cols = 1;
