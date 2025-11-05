@@ -526,7 +526,7 @@
   // 配置获取
   async function fetchYardConfig() {
     return {
-      yard: {length: 300, width: 310, roadWidth: 20}, // 将length从350减少到300，缩小西方向50米；width保持290米
+      yard: {length: 500, width: 310, roadWidth: 20}, // 将length从350减少到300，缩小西方向50米；width保持290米
       warehouse: {
         count: 1,
         length: 45,
@@ -2876,6 +2876,90 @@ function getSiloSelectedColor(obj) {
     return group;
   }
 
+  // 露天堆构建函数
+  function buildOutdoorStorage(length = 30, width = 20, height = 5, name = '露天堆') {
+    const group = new THREE.Group();
+    
+    // 地面平台（浅色）
+    const platformGeo = new THREE.BoxGeometry(length, 0.2, width);
+    const platformMat = new THREE.MeshStandardMaterial({
+      color: 0xC0C0C0,
+      roughness: 0.9,
+      metalness: 0.1
+    });
+    const platform = new THREE.Mesh(platformGeo, platformMat);
+    platform.position.y = 0.1;
+    platform.receiveShadow = true;
+    group.add(platform);
+    
+    // 地面边框线框
+    const platformWireframe = createWireframe(platformGeo, 0x808080);
+    platformWireframe.position.y = 0.1;
+    group.add(platformWireframe);
+    
+    // 堆放的货物（用多个较矮的方块表示）
+    const pileGeo = new THREE.BoxGeometry(length * 0.8, height, width * 0.8);
+    const pileMat = new THREE.MeshStandardMaterial({
+      color: 0x8B7355,
+      roughness: 0.8,
+      metalness: 0.1
+    });
+    const pile = new THREE.Mesh(pileGeo, pileMat);
+    pile.position.y = height / 2 + 0.2;
+    pile.castShadow = true;
+    pile.receiveShadow = true;
+    group.add(pile);
+    
+    // 货物堆线框
+    const pileWireframe = createWireframe(pileGeo, 0x654321);
+    pileWireframe.position.y = height / 2 + 0.2;
+    group.add(pileWireframe);
+    
+    // 围栏（四周）
+    const fenceHeight = 1.5;
+    const fenceThickness = 0.1;
+    const fenceMat = new THREE.MeshStandardMaterial({
+      color: 0xFFD700,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    
+    // 前后围栏
+    const fenceLongGeo = new THREE.BoxGeometry(length + 2, fenceHeight, fenceThickness);
+    const fenceFront = new THREE.Mesh(fenceLongGeo, fenceMat);
+    fenceFront.position.set(0, fenceHeight / 2, -width / 2 - 1);
+    fenceFront.castShadow = true;
+    group.add(fenceFront);
+    
+    const fenceBack = new THREE.Mesh(fenceLongGeo, fenceMat);
+    fenceBack.position.set(0, fenceHeight / 2, width / 2 + 1);
+    fenceBack.castShadow = true;
+    group.add(fenceBack);
+    
+    // 左右围栏
+    const fenceShortGeo = new THREE.BoxGeometry(fenceThickness, fenceHeight, width + 2);
+    const fenceLeft = new THREE.Mesh(fenceShortGeo, fenceMat);
+    fenceLeft.position.set(-length / 2 - 1, fenceHeight / 2, 0);
+    fenceLeft.castShadow = true;
+    group.add(fenceLeft);
+    
+    const fenceRight = new THREE.Mesh(fenceShortGeo, fenceMat);
+    fenceRight.position.set(length / 2 + 1, fenceHeight / 2, 0);
+    fenceRight.castShadow = true;
+    group.add(fenceRight);
+    
+    // 添加userData以供交互使用
+    group.userData = {
+      type: '露天堆',
+      名称: name,
+      长: length,
+      宽: width,
+      高: height
+    };
+    
+    return group;
+  }
+
   // 筒仓构建函数
   function buildSiloWireframe(radius, height, radialSegments = 24) {
     const cyl = new THREE.CylinderGeometry(radius, radius, height, radialSegments, 1, false);
@@ -3952,15 +4036,15 @@ function getSiloSelectedColor(obj) {
     
     // 添加2条铁路
     // 第一条铁路：位于道路南侧
-    buildRailway(yardL, -30, 0); // Z偏移-30米（道路南侧）
+    buildRailway(yardL, 20, 0); // Z偏移0米（往北移动30米后）
     // 第二条铁路：位于道路更南侧
-    buildRailway(yardL, -40, 0); // Z偏移-40米（更南侧）
+    buildRailway(yardL, 10, 0); // Z偏移-10米（往北移动30米后）
 
     const {length: wL, width: wW, height: wH, roofHeight: rH, gap} = cfg.warehouse;
     const cols = 1;
     const rows = 1;
     const totalRowSpan = cols * wL + (cols - 1) * gap;
-    const leftStart = -totalRowSpan / 2 + wL / 2 + 60; // 将仓库#A向东移动（增加X坐标）
+    const leftStart = -totalRowSpan / 2 + wL / 2 + 120; // 将仓库#A向东移动（增加X坐标）
 
     const zRowOffset = -(roadWidth / 2 + wW / 2 + 5) + -25; // 向北移动20米（增加Z坐标）
     const rowZs = [zRowOffset];
@@ -4102,7 +4186,7 @@ function getSiloSelectedColor(obj) {
         spacingInter: 1.5,
         rowGroupCounts: [1, 1, 1, 1], // 筒仓 - Z方向4排，每排1组，每组2个筒仓（在X方向）
         roadSouthMargin: 15, // 减少南侧边距，更好地利用空间
-        xOffset: -20, // X方向偏移量（正值向东，负值向西）- 向西移动更多以容纳新增筒仓
+        xOffset: 40, // X方向偏移量（正值向东，负值向西）- 向西移动更多以容纳新增筒仓
         zOffset: -90  // Z方向偏移量（正值向北，负值向南）
       });
 
@@ -4110,7 +4194,7 @@ function getSiloSelectedColor(obj) {
       // 添加地磅 - 立即渲染，不等待任何条件
       
       // 立即创建地磅，不使用await等待，确保立即渲染
-      placeWeighbridge(110, -75, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
+      placeWeighbridge(210, -75, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
         length: 20, 
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
@@ -4118,7 +4202,7 @@ function getSiloSelectedColor(obj) {
       }).catch(error => {
       });
       
-      placeWeighbridge(110, -55, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
+      placeWeighbridge(210, -55, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
         length: 20, 
         width: 10, 
         // rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
@@ -4143,6 +4227,38 @@ function getSiloSelectedColor(obj) {
       // }).catch(error => {
       // });
       
+      // ================= 添加露天堆 =================
+      
+      // 露天堆配置数组
+      const outdoorStorageConfigs = [
+        { x: -210, z: -40, length: 30, width: 20, height: 5, name: '露天堆1' },
+        { x: -210, z: -70, length: 25, width: 18, height: 4, name: '露天堆2' },
+        { x: -145, z: -90, length: 28, width: 22, height: 6, name: '露天堆3' },
+        { x: -165, z: -90, length: 28, width: 22, height: 6, name: '露天堆4' },
+        { x: -175, z: -90, length: 28, width: 22, height: 6, name: '露天堆5' },
+        { x: -185, z: -90, length: 28, width: 22, height: 6, name: '露天堆6' },
+        { x: -195, z: -90, length: 28, width: 22, height: 6, name: '露天堆7' }
+      ];
+      
+      // 创建所有露天堆
+      outdoorStorageConfigs.forEach(config => {
+        const outdoorStorage = buildOutdoorStorage(config.length, config.width, config.height, config.name);
+        outdoorStorage.position.set(config.x, 0, config.z);
+        scene.add(outdoorStorage);
+        
+        // 添加标签
+        const labelEl = document.createElement('div');
+        labelEl.className = 'whLabel';
+        labelEl.textContent = config.name;
+        labelEl.style.background = 'rgba(139, 115, 85, 0.9)';
+        labelEl.style.color = '#fff';
+        labelEl.style.padding = '4px 8px';
+        labelEl.style.borderRadius = '4px';
+        labelEl.style.fontSize = '12px';
+        const labelObj = new CSS2DObject(labelEl);
+        labelObj.position.set(0, config.height + 2, 0);
+        outdoorStorage.add(labelObj);
+      });
 
       // ================= 添加星仓 =================
       
