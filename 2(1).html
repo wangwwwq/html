@@ -763,6 +763,13 @@
     }
   };
 
+  // API返回的仓库ID到场景编号的映射表
+  const API_TO_SCENE_MAPPING = {
+    '千吨罐01': '01',     // API的"千吨罐01" -> 场景中的"筒仓01"
+    '3号库04': '3号库',   // API的"3号库04" -> 场景中的"3号库"
+    '露天堆01': '露天堆1'  // API的"露天堆01" -> 场景中的"露天堆1"
+  };
+
   // 全局筒仓数据缓存
   let globalSiloData = null;
   let lastFetchTime = 0;
@@ -1272,11 +1279,27 @@
       throw new Error('网络繁忙，请稍后再试');
     }
 
-    // 直接使用传入的筒仓编号查找API数据
+    // 查找API数据时，需要使用反向映射
     let targetSilo;
     if (siloNumber) {
-      // 优先使用传入的编号查找
+      // 首先尝试直接使用编号查找
       targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === siloNumber);
+      
+      // 如果直接查找失败，尝试使用反向映射查找
+      // 例如：场景传入"01" -> 需要在API中查找"千吨罐01"
+      if (!targetSilo) {
+        // 构建反向映射：场景编号 -> API ID
+        const sceneToApiMap = {};
+        Object.entries(API_TO_SCENE_MAPPING).forEach(([apiId, sceneNumber]) => {
+          sceneToApiMap[sceneNumber] = apiId;
+        });
+        
+        // 尝试使用反向映射查找
+        const apiId = sceneToApiMap[siloNumber];
+        if (apiId) {
+          targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === apiId);
+        }
+      }
     }
     
     // 如果按编号未找到，不使用备用映射，直接返回空数据
@@ -2045,6 +2068,9 @@
         } else if (userData?.type === '地磅') {
           // 地磅可以交互
           return current;
+        } else if (userData?.type === '露天堆') {
+          // 露天堆可以交互
+          return current;
         }
       }
       current = current.parent;
@@ -2162,6 +2188,37 @@
         <div>当前: ${current} 吨</div>
         <div>星角: ${arms}角</div>
         ${specialInfo}
+        ${materialInfo}
+      `;
+    } else if (type === '露天堆') {
+      // 露天堆悬停信息
+      const name = obj.userData?.名称 || '未命名';
+      const siloInfo = obj.userData?.siloInfo;
+      const materials = obj.userData?.materialDetails || [];
+      const current = siloInfo?.currentStorage || '0';
+      
+      let materialInfo = '';
+      if (materials.length > 0) {
+        materialInfo = '<div style="margin-top: 6px; font-size: 12px;">';
+        materials.forEach(m => {
+          const colorData = parseColor(m.companyColor);
+          const companyColor = colorData.css || '#666666';
+          const isNegative = parseFloat(m.amount) < 0;
+          const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
+          const negativeIcon = isNegative ? '⬇️ ' : '';
+          materialInfo += `<div style="margin: 2px 0; display: flex; align-items: center;">
+            <div style="width: 10px; height: 10px; background: ${companyColor}; border-radius: 2px; margin-right: 6px; border: 1px solid #ccc;"></div>
+            <span style="color: ${companyColor}; font-weight: bold;">${m.company}: <span style="${amountStyle}">${negativeIcon}${m.amount}吨</span> ${m.material}</span>
+          </div>`;
+        });
+        materialInfo += '</div>';
+      } else {
+        materialInfo = '<div style="margin-top: 6px; font-size: 12px; color: #888;">暂无物料数据</div>';
+      }
+      
+      infoPanel.innerHTML = `
+        <div><b>🏗️ ${name}</b></div>
+        <div>当前储量: ${current} 吨</div>
         ${materialInfo}
       `;
     } else {
@@ -2529,6 +2586,58 @@ function getSiloSelectedColor(obj) {
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
         <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
+        ${materialsHtml}
+        ${dataSourceHtml}
+      `;
+    } else if (ud.type === '露天堆') {
+      // 处理露天堆详情
+      const typeLabel = '🏗️ 露天堆详情';
+      const siloInfo = ud.siloInfo || {};
+      const materials = ud.materialDetails || [];
+      const current = siloInfo.currentStorage || '0';
+      
+      let materialsHtml = '';
+      if (materials.length > 0) {
+        materialsHtml = '<div style="margin-top: 8px;"><b>物料详情:</b></div>';
+        materials.forEach((m, index) => {
+          const colorData = parseColor(m.companyColor);
+          const companyColor = colorData.css || '#666666';
+          const isNegative = parseFloat(m.amount) < 0;
+          const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
+          const negativeIcon = isNegative ? '⬇️ ' : '';
+          const negativeLabel = isNegative ? ' (出库)' : '';
+          materialsHtml += `
+            <div style="background: #f8f9fa; padding: 6px; margin: 4px 0; border-radius: 4px; border-left: 3px solid ${companyColor};">
+              <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                <div style="width: 12px; height: 12px; background: ${companyColor}; border-radius: 2px; margin-right: 8px; border: 1px solid #ccc;"></div>
+                <span style="font-weight: bold; color: ${companyColor};">${m.company}${negativeLabel}</span>
+              </div>
+              <div style="font-size: 13px;">物料: ${m.material} | 数量: <span style="${amountStyle}">${negativeIcon}${m.amount} 吨</span></div>
+              <div style="font-size: 12px; color: #666;">入仓时间: ${m.storageDate}</div>
+            </div>
+          `;
+        });
+      } else {
+        materialsHtml = '<div style="margin-top: 8px; color: #888;">暂无物料</div>';
+      }
+      
+      // 数据来源信息
+      let dataSourceHtml = '';
+      if (ud.数据来源 && ud.更新时间) {
+        dataSourceHtml = `
+          <div style="margin-top: 8px; padding: 4px; background: #f0f0f0; border-radius: 4px; font-size: 11px; color: #666;">
+            数据来源: ${ud.数据来源} | 更新时间: ${ud.更新时间}
+          </div>
+        `;
+      }
+      
+      detailPanel.innerHTML = `
+        <div style="font-weight:600;margin-bottom:6px;">${typeLabel}</div>
+        <div>名称: ${ud.名称 || '未命名'}</div>
+        <div>长: ${ud.长} 米</div>
+        <div>宽: ${ud.宽} 米</div>
+        <div>高: ${ud.高} 米</div>
+        <div>当前储量: ${current} 吨</div>
         ${materialsHtml}
         ${dataSourceHtml}
       `;
@@ -2986,8 +3095,8 @@ function getSiloSelectedColor(obj) {
     return group;
   }
 
-  // 露天堆构建函数
-  function buildOutdoorStorage(length = 30, width = 20, height = 5, name = '露天堆') {
+  // 露天堆构建函数（改为异步，支持API数据获取）
+  async function buildOutdoorStorage(length = 30, width = 20, height = 5, name = '露天堆', siloNumber = null) {
     const group = new THREE.Group();
     
     // 地面平台（浅色）
@@ -3058,13 +3167,44 @@ function getSiloSelectedColor(obj) {
     fenceRight.castShadow = true;
     group.add(fenceRight);
     
+    // 如果有编号，尝试从API获取数据
+    let apiData;
+    if (siloNumber) {
+      try {
+        const volume = length * width * height * 0.8; // 估算体积
+        apiData = await fetchSiloAndMaterialData({
+          siloId: name,
+          siloNumber: siloNumber,
+          siloType: '露天堆',
+          radius: 0,
+          height: height,
+          volume: volume.toFixed(1),
+          capacity: (volume * 0.75).toFixed(1)
+        });
+      } catch (error) {
+        // 静默处理错误
+      }
+    }
+    
+    // 检查是否有有效的物料数据
+    const hasMaterialData = apiData && 
+                            apiData.materialDetails && 
+                            apiData.materialDetails.length > 0 &&
+                            apiData.materialDetails.some(m => Math.abs(parseFloat(m.amount) || 0) > 0);
+    
     // 添加userData以供交互使用
     group.userData = {
       type: '露天堆',
       名称: name,
+      siloNumber: siloNumber,
       长: length,
       宽: width,
-      高: height
+      高: height,
+      siloInfo: apiData?.siloInfo,
+      materialDetails: apiData?.materialDetails || [],
+      hasMaterialData: hasMaterialData,
+      数据来源: apiData?.dataSource,
+      更新时间: apiData?.timestamp
     };
     
     return group;
@@ -4353,18 +4493,18 @@ function getSiloSelectedColor(obj) {
       
       // 露天堆配置数组
       const outdoorStorageConfigs = [
-        { x: -210, z: -40, length: 30, width: 20, height: 5, name: '露天堆1' },
-        { x: -210, z: -70, length: 25, width: 18, height: 4, name: '露天堆2' },
-        { x: -145, z: -90, length: 28, width: 22, height: 6, name: '露天堆3' },
-        { x: -165, z: -90, length: 28, width: 22, height: 6, name: '露天堆4' },
-        { x: -175, z: -90, length: 28, width: 22, height: 6, name: '露天堆5' },
-        { x: -185, z: -90, length: 28, width: 22, height: 6, name: '露天堆6' },
-        { x: -195, z: -90, length: 28, width: 22, height: 6, name: '露天堆7' }
+        { x: -210, z: -40, length: 30, width: 20, height: 5, name: '露天堆1', siloNumber: '露天堆1' },
+        { x: -210, z: -70, length: 25, width: 18, height: 4, name: '露天堆2', siloNumber: null },
+        { x: -145, z: -90, length: 28, width: 22, height: 6, name: '露天堆3', siloNumber: null },
+        { x: -165, z: -90, length: 28, width: 22, height: 6, name: '露天堆4', siloNumber: null },
+        { x: -175, z: -90, length: 28, width: 22, height: 6, name: '露天堆5', siloNumber: null },
+        { x: -185, z: -90, length: 28, width: 22, height: 6, name: '露天堆6', siloNumber: null },
+        { x: -195, z: -90, length: 28, width: 22, height: 6, name: '露天堆7', siloNumber: null }
       ];
       
-      // 创建所有露天堆
-      outdoorStorageConfigs.forEach(config => {
-        const outdoorStorage = buildOutdoorStorage(config.length, config.width, config.height, config.name);
+      // 创建所有露天堆（改为异步并行创建）
+      const outdoorStoragePromises = outdoorStorageConfigs.map(async config => {
+        const outdoorStorage = await buildOutdoorStorage(config.length, config.width, config.height, config.name, config.siloNumber);
         outdoorStorage.position.set(config.x, 0, config.z);
         scene.add(outdoorStorage);
         
@@ -4380,7 +4520,15 @@ function getSiloSelectedColor(obj) {
         const labelObj = new CSS2DObject(labelEl);
         labelObj.position.set(0, config.height + 2, 0);
         outdoorStorage.add(labelObj);
+        
+        // 注册为可交互对象
+        registerInteractive(outdoorStorage);
+        
+        return outdoorStorage;
       });
+      
+      // 等待所有露天堆创建完成
+      await Promise.all(outdoorStoragePromises);
 
       // ================= 添加星仓 =================
       
