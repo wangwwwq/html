@@ -541,7 +541,14 @@
   async function fetchWarehouseStackConfig(warehouseIndex) {
     // P01(101), P02(102), P03(103) 平仓保持原来的18米宽度
     // 其他仓库（#A仓库和单个堆垛的平仓）使用30米宽度
-    if (warehouseIndex === 101 || warehouseIndex === 102 || warehouseIndex === 103) {
+    if (warehouseIndex === 101) {
+      // 3号库（P01平仓）放大尺寸
+      return {
+        stackSize: {length: 60, width: 70, height: 12},
+        spacing: 5,
+        margin: 5
+      };
+    } else if (warehouseIndex === 102 || warehouseIndex === 103) {
       return {
         stackSize: {length: 40, width: 18, height: 8},
         spacing: 5,
@@ -874,7 +881,7 @@
       try {
         // 构建带参数的API URL
         const params = new URLSearchParams({
-          warehouseName: '钦州侨益仓'  // 固定传递库区名称
+          warehouseName: '锦州锦港库'  // 固定传递库区名称
         });
         const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_WEIGHBRIDGES}?${params}`;
         
