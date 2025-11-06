@@ -2036,9 +2036,9 @@
         编号: stackNumber, // 强制使用本地配置的堆垛名称
         owner: hasMaterialData ? siloInfo.owner : undefined,
         仓库序号: index + 1,
-        体积_m3: vol,
-        尺寸_m: `${sx}×${sy}×${sz}`,
-        最大容量_t: siloInfo.maxCapacity,
+        体积_m3: '无数据',
+        尺寸_m: '无数据',
+        最大容量_t: '无数据',
         当前储量_t: siloInfo.currentStorage,
         物料详情: hasMaterialData ? activeMaterials : [],
         hasMaterialData: hasMaterialData,
@@ -2683,9 +2683,6 @@ function getSiloSelectedColor(obj) {
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel}</div>
         <div>名称: ${ud.名称 || '未命名'}</div>
-        <div>长: ${ud.长} 米</div>
-        <div>宽: ${ud.宽} 米</div>
-        <div>高: ${ud.高} 米</div>
         <div>当前储量: ${current} 吨</div>
         ${materialsHtml}
         ${dataSourceHtml}
