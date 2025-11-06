@@ -1279,42 +1279,36 @@
       throw new Error('网络繁忙，请稍后再试');
     }
 
-    // 查找API数据时，需要使用反向映射（包含匹配）
+    // 查找API数据时的匹配策略
     let targetSilo;
     if (siloNumber) {
-      // 首先尝试直接使用编号查找（精确匹配）
-      targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === siloNumber);
+      // 判断场景编号是否为堆垛编号（格式如"1-1", "2-3", "3-2"等，只有1号库、2号库、3号库有堆垛）
+      const isStackNumber = /^[1-3]-[0-9]+$/.test(siloNumber);
+      // 判断场景编号是否为号库编号（格式如"1号库", "2号库", "3号库"等）
+      const isWarehouseNumber = /^[0-9]+号库$/.test(siloNumber);
       
-      // 如果直接查找失败，尝试使用包含匹配查找
-      if (!targetSilo) {
-        // 尝试从映射表中找到包含目标编号的API ID
+      if (isStackNumber) {
+        // 堆垛（仅1/2/3号库）：使用模糊包含匹配，但API ID必须也包含"堆垛"关键字或符合格式
         targetSilo = allSilosData.siloList.find(silo => {
           const siloId = silo.siloInfo.id;
-          
-          // 检查API ID是否包含场景编号
-          if (siloId.includes(siloNumber)) {
-            return true;
+          // API ID必须包含"堆垛"关键字，或者符合"数字-数字"格式且是1/2/3号库
+          const isApiStackFormat = siloId.includes('堆垛') || /^[1-3]-[0-9]+/.test(siloId);
+          if (!isApiStackFormat) {
+            return false; // 如果API ID不是堆垛格式，直接排除
           }
-          
-          // 检查场景编号是否包含API ID
-          if (siloNumber.includes(siloId)) {
-            return true;
-          }
-          
-          // 检查映射表中的匹配
-          for (const [apiId, sceneNumber] of Object.entries(API_TO_SCENE_MAPPING)) {
-            // 如果场景编号匹配，检查API ID是否包含
-            if (sceneNumber.includes(siloNumber) && siloId.includes(apiId)) {
-              return true;
-            }
-            // 如果API ID匹配，检查场景编号是否包含
-            if (apiId.includes(siloNumber) && siloId.includes(apiId)) {
-              return true;
-            }
-          }
-          
-          return false;
+          // 检查API ID是否包含场景编号，或场景编号是否包含API ID
+          return siloId.includes(siloNumber) || siloNumber.includes(siloId);
         });
+      } else if (isWarehouseNumber) {
+        // 号库编号（如"3号库"）：API返回格式如"3号库04"，提取前面的"3号库"进行匹配
+        targetSilo = allSilosData.siloList.find(silo => {
+          const siloId = silo.siloInfo.id;
+          // 检查API ID是否以场景编号开头（如 "3号库04" 以 "3号库" 开头）
+          return siloId.startsWith(siloNumber);
+        });
+      } else {
+        // 千吨罐/筒仓、露天堆等：直接精确匹配
+        targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === siloNumber);
       }
     }
     
@@ -3436,13 +3430,13 @@ function getSiloSelectedColor(obj) {
     // 共4排，每排1组，每组2个筒仓（从东到西排列）
     silo: [
       // 第1排（最北侧）- 2个筒仓从东到西
-      ['05', '01'],
+      ['千吨罐05', '千吨罐01'],
       // 第2排 - 2个筒仓从东到西
-      ['06', '02'],
+      ['千吨罐06', '千吨罐02'],
       // 第3排 - 2个筒仓从东到西
-      ['07', '03'],
+      ['千吨罐07', '千吨罐03'],
       // 第4排（最南侧）- 2个筒仓从东到西
-      ['08', '04']
+      ['千吨罐08', '千吨罐04']
     ],
     // 星仓编号 - 按照地理位置从西到东、从北到南排列（共20个）
     starSilo: [
@@ -3557,7 +3551,8 @@ function getSiloSelectedColor(obj) {
 
     // 使用接口返回的数据设置筒仓信息
     group.userData = {
-      type: siloInfo.type,
+      type: '筒仓', // 强制设置为'筒仓'类型，确保点击事件正常工作
+      originalType: siloInfo.type, // 保存原始类型信息（如"千吨罐"）用于显示
       id: siloInfo.id,
       编号: siloNumber || '未分配', // 使用本地编号，如果没有则显示"未分配"
       owner: hasMaterialData ? siloInfo.owner : undefined,
@@ -4548,13 +4543,13 @@ function getSiloSelectedColor(obj) {
       
       // 露天堆配置数组
       const outdoorStorageConfigs = [
-        { x: -210, z: -40, length: 30, width: 20, height: 5, name: '露天堆01', siloNumber: null },
-        { x: -210, z: -70, length: 25, width: 18, height: 4, name: '露天堆02', siloNumber: null },
-        { x: -145, z: -90, length: 28, width: 22, height: 6, name: '露天堆03', siloNumber: null },
-        { x: -165, z: -90, length: 28, width: 22, height: 6, name: '露天堆04', siloNumber: null },
-        { x: -175, z: -90, length: 28, width: 22, height: 6, name: '露天堆05', siloNumber: null },
-        { x: -185, z: -90, length: 28, width: 22, height: 6, name: '露天堆06', siloNumber: null },
-        { x: -195, z: -90, length: 28, width: 22, height: 6, name: '露天堆07', siloNumber: null }
+        { x: -210, z: -40, length: 30, width: 20, height: 5, name: '露天堆01', siloNumber: '露天堆01' },
+        { x: -210, z: -70, length: 25, width: 18, height: 4, name: '露天堆02', siloNumber: '露天堆02' },
+        { x: -145, z: -90, length: 28, width: 22, height: 6, name: '露天堆03', siloNumber: '露天堆03' },
+        { x: -165, z: -90, length: 28, width: 22, height: 6, name: '露天堆04', siloNumber: '露天堆04' },
+        { x: -175, z: -90, length: 28, width: 22, height: 6, name: '露天堆05', siloNumber: '露天堆05' },
+        { x: -185, z: -90, length: 28, width: 22, height: 6, name: '露天堆06', siloNumber: '露天堆06' },
+        { x: -195, z: -90, length: 28, width: 22, height: 6, name: '露天堆07', siloNumber: '露天堆07' }
       ];
       
       // 创建所有露天堆（改为异步并行创建）
