@@ -181,20 +181,6 @@
       white-space: nowrap;
     }
 
-    #whPanel {
-      position: fixed;
-      right: 16px;
-      bottom: 16px;
-      z-index: 10;
-      display: none;
-      background: var(--panel-bg);
-      color: var(--panel-fg);
-      padding: 10px 14px;
-      border-radius: 8px;
-      box-shadow: var(--panel-shadow);
-      min-width: 240px;
-      font-size: 14px;
-    }
 
     #actionBar {
       position: fixed;
@@ -441,7 +427,6 @@
     <text x="8" y="54" text-anchor="middle" class="label">W</text>
   </svg>
 </div>
-<div id="whPanel"></div>
 
 <div id="actionBar" aria-live="polite">
   <div class="action-bar">
@@ -551,7 +536,6 @@
   const infoPanel = document.getElementById('infoPanel');
   const detailPanel = document.getElementById('detailPanel');
   const compass = document.getElementById('compass');
-  const whPanel = document.getElementById('whPanel');
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
@@ -2091,13 +2075,7 @@ function getSiloSelectedColor(obj) {
   function layoutInfoPanels() {
     const gap = 12;
     const detailShown = detailPanel.style.display !== 'none';
-    const whShown = whPanel.style.display !== 'none';
     detailPanel.style.bottom = '16px';
-    whPanel.style.bottom = '16px';
-    if (detailShown && whShown) {
-      const h = detailPanel.offsetHeight || detailPanel.getBoundingClientRect().height || 0;
-      whPanel.style.bottom = (16 + h + gap) + 'px';
-    }
   }
 
   function updateActionBar() {
@@ -2151,10 +2129,10 @@ function getSiloSelectedColor(obj) {
       
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
-        ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>半径: ${ud.半径_m} 米</div>
-        <div>高度: ${ud.高度_m} 米</div>
-        <div>容积: ${ud.容积_m3} m³</div>
-        <div>最大容量: ${ud.最大容量_t} 吨</div>
+        ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>半径: 未提供</div>
+        <div>高度: 未提供</div>
+        <div>容积: 未提供</div>
+        <div>最大容量: 未提供</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
         <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
@@ -2339,20 +2317,6 @@ function getSiloSelectedColor(obj) {
       setStackColor(selected, selectedColor);
     }
     updateDetailPanel();
-    const info = selected.userData?.whInfo;
-    if (info) {
-      whPanel.innerHTML = `
-          <div style="font-weight:600;margin-bottom:6px;">仓库 ${info.id}</div>
-          <div>面积: ${info.area} m²</div>
-          <div>仓内温度: ${info.temperature} ℃</div>
-          <div>增值作业: ${info.services.join('、')}</div>
-          <div>当日值勤: ${info.phone}</div>
-        `;
-      whPanel.style.display = 'block';
-      layoutInfoPanels();
-    } else {
-      whPanel.style.display = 'none';
-    }
     updateActionBar();
   }
 
@@ -2389,7 +2353,6 @@ function getSiloSelectedColor(obj) {
     selected = null;
     updateDetailPanel();
     updateActionBar();
-    whPanel.style.display = 'none';
   }
 
   btnLfs.addEventListener('click', (e) => {
