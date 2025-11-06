@@ -1603,6 +1603,110 @@
     }
   }
 
+  // 大门建造函数
+  function buildEntranceGate({
+    span = 20,
+    pillarHeight = 8,
+    pillarWidth = 1.2,
+    pillarDepth = 1.6,
+    beamHeight = 1.2,
+    beamDepth = 1,
+    color = 0x9fa4ad,
+    accentColor = 0x2b6cb0,
+    lightColor = 0xffd27f
+  } = {}) {
+    const group = new THREE.Group();
+    const halfSpan = span / 2;
+
+    const pillarGeo = new THREE.BoxGeometry(pillarDepth, pillarHeight, pillarWidth);
+    const pillarMat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.65,
+      metalness: 0.2
+    });
+
+    const baseGeo = new THREE.BoxGeometry(pillarDepth * 1.2, 0.3, pillarWidth * 1.8);
+    const baseMat = new THREE.MeshStandardMaterial({
+      color: 0x686868,
+      roughness: 0.85,
+      metalness: 0.08
+    });
+
+    const addPillar = zPos => {
+      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+      pillar.position.set(0, pillarHeight / 2, zPos);
+      pillar.castShadow = true;
+      pillar.receiveShadow = true;
+      group.add(pillar);
+
+      const pillarFrame = createWireframe(pillarGeo, 0x555555);
+      pillarFrame.position.set(0, pillarHeight / 2, zPos);
+      group.add(pillarFrame);
+
+      const base = new THREE.Mesh(baseGeo, baseMat);
+      base.position.set(0, 0.15, zPos);
+      base.receiveShadow = true;
+      group.add(base);
+
+      const baseFrame = createWireframe(baseGeo, 0x444444);
+      baseFrame.position.set(0, 0.15, zPos);
+      group.add(baseFrame);
+
+      const lampGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.7, 14);
+      const lampMat = new THREE.MeshStandardMaterial({
+        color: lightColor,
+        emissive: lightColor,
+        emissiveIntensity: 0.5,
+        roughness: 0.4,
+        metalness: 0.3
+      });
+      const lamp = new THREE.Mesh(lampGeo, lampMat);
+      lamp.position.set(pillarDepth / 2 + 0.1, pillarHeight - 1, zPos);
+      lamp.rotation.z = Math.PI / 2;
+      lamp.castShadow = true;
+      group.add(lamp);
+    };
+
+    addPillar(halfSpan - pillarWidth / 2);
+    addPillar(-halfSpan + pillarWidth / 2);
+
+    const beamGeo = new THREE.BoxGeometry(beamDepth, beamHeight, span + pillarWidth * 0.6);
+    const beam = new THREE.Mesh(beamGeo, pillarMat);
+    beam.position.set(0, pillarHeight + beamHeight / 2, 0);
+    beam.castShadow = true;
+    beam.receiveShadow = true;
+    group.add(beam);
+
+    const beamFrame = createWireframe(beamGeo, 0x555555);
+    beamFrame.position.copy(beam.position);
+    group.add(beamFrame);
+
+    const panelWidth = span * 0.6;
+    const panelHeight = beamHeight * 0.75;
+    const panelThickness = Math.max(0.3, beamDepth * 0.5);
+    const panelGeo = new THREE.BoxGeometry(panelThickness, panelHeight, panelWidth);
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: accentColor,
+      roughness: 0.5,
+      metalness: 0.25
+    });
+    const panel = new THREE.Mesh(panelGeo, panelMat);
+    panel.position.set(beamDepth / 2 + panelThickness / 2 + 0.05, pillarHeight + beamHeight / 2, 0);
+    panel.castShadow = true;
+    group.add(panel);
+
+    const panelFrame = createWireframe(panelGeo, 0x1f4b99);
+    panelFrame.position.copy(panel.position);
+    group.add(panelFrame);
+
+    group.userData = {
+      type: 'entranceGate',
+      name: 'Entrance Gate'
+    };
+
+    return group;
+  }
+
   function buildWarehouse({length, width, height, roofHeight}, centerX, centerZ, index) {
     const group = new THREE.Group();
     group.position.set(centerX, 0, centerZ);
@@ -3896,6 +4000,48 @@ function getSiloSelectedColor(obj) {
     const roadZOffset = 40; // 道路向北移动40米（正值向北）
     buildMainRoad(roadWidth, yardL, roadZOffset);
     buildSidewalkTrees(roadWidth, yardL, 10, roadZOffset);
+
+    // 创建园区入口大门 - 西侧主入口
+    const entranceGate1 = buildEntranceGate({
+      span: Math.max(roadWidth - 2, 12),
+      pillarHeight: 8,
+      pillarWidth: 1.4,
+      pillarDepth: 1.8,
+      beamHeight: 1.2,
+      beamDepth: 1.2
+    });
+    entranceGate1.position.set(-yardL / 2 + 10, 0, roadZOffset - 105); // 在道路西侧入口，向南移动20米
+    entranceGate1.scale.set(1.5, 2.5, 1.5); // 宽1.5倍，高2.5倍，深1.5倍
+    scene.add(entranceGate1);
+
+    // 创建园区入口大门 - 东侧入口
+    const entranceGate2 = buildEntranceGate({
+      span: Math.max(roadWidth - 2, 12),
+      pillarHeight: 8,
+      pillarWidth: 1.4,
+      pillarDepth: 1.8,
+      beamHeight: 1.2,
+      beamDepth: 1.2,
+      accentColor: 0x2d9463 // 绿色标识面板
+    });
+    entranceGate2.position.set(yardL / 2 - 10, 0, roadZOffset - 105); // 在道路东侧入口
+    entranceGate2.scale.set(1.5, 2.5, 1.5);
+    scene.add(entranceGate2);
+
+    // 创建园区入口大门 - 南侧入口
+    const entranceGate3 = buildEntranceGate({
+      span: 18,
+      pillarHeight: 7,
+      pillarWidth: 1.2,
+      pillarDepth: 1.6,
+      beamHeight: 1.0,
+      beamDepth: 1.0,
+      accentColor: 0xc97a3d // 橙色标识面板
+    });
+    entranceGate3.position.set(5, 0, -yardW / 2 +180); // 在场地南侧入口，向右移动5米
+    entranceGate3.rotation.y = Math.PI / 2; // 旋转90度面向北
+    entranceGate3.scale.set(1.3, 2.2, 1.3);
+    scene.add(entranceGate3);
 
     const {length: wL, width: wW, height: wH, roofHeight: rH, gap} = cfg.warehouse;
     const cols = 1;
