@@ -4318,15 +4318,18 @@
             const width = Math.max(maxX - minX, radius * 2);
             const depth = Math.max(maxZ - minZ, radius * 2);
 
-            const baseGeo = new THREE.PlaneGeometry(width, depth);
+            // 地板厚度设置
+            const floorThickness = 2.0; // 可调整的地板厚度（米）
+            
+            const baseGeo = new THREE.BoxGeometry(width, floorThickness, depth);
             const baseMat = new THREE.MeshStandardMaterial({
                 color: 0xC0C0C0,
                 roughness: 0.85,
-                side: THREE.DoubleSide
+                metalness: 0.1  // 添加一点金属感，提升地板质感
             });
             const base = new THREE.Mesh(baseGeo, baseMat);
-            base.rotation.x = -Math.PI / 2;
-            base.position.set((minX + maxX) / 2, 0.02, (minZ + maxZ) / 2);
+            // BoxGeometry 不需要旋转，底部自然贴合地面
+            base.position.set((minX + maxX) / 2, floorThickness / 2, (minZ + maxZ) / 2);
             base.receiveShadow = true;
             scene.add(base);
         }
