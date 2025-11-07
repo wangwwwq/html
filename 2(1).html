@@ -1303,7 +1303,9 @@
           status: targetSilo.siloInfo.status,
           owner: extractOwner(targetSilo.materialDetails),
           specialMark: targetSilo.siloInfo.specialMark,
-          arms: targetSilo.siloInfo.arms
+          arms: targetSilo.siloInfo.arms,
+          // 添加监控视频流URL字段
+          videoStreamUrl: targetSilo.siloInfo.videoStreamUrl || targetSilo.siloInfo.videoUrl || targetSilo.siloInfo.monitorUrl
         },
         materialDetails: targetSilo.materialDetails || [],
         timestamp: targetSilo.timestamp,
@@ -1421,16 +1423,22 @@
   const YINGSHI_MONITOR_URL = 'https://rtmp05open.ys7.com:9188/v3/openlive/C54441328_1_1.flv?expire=1761814378&id=901513545338388480&t=d8d642746d1c4827d6a11f1a4cd035c7ae35f3b27af62bb14611d3b9eef52f82&ev=101&supportH265=1';
 
   // 监控播放器初始化函数
-  function initFlvPlayer() {
+  function initFlvPlayer(videoUrl) {
     if (flvPlayer) {
       flvPlayer.destroy();
       flvPlayer = null;
     }
 
+    if (!videoUrl) {
+      monitorLoading.textContent = '该仓库暂无监控视频流';
+      monitorLoading.style.color = '#dc2626';
+      return;
+    }
+
     if (flvjs.isSupported()) {
       flvPlayer = flvjs.createPlayer({
         type: 'flv',
-        url: YINGSHI_MONITOR_URL,
+        url: videoUrl,
         isLive: true,
         cors: true,
         withCredentials: false,
@@ -1463,20 +1471,61 @@
   }
 
   // 显示监控面板
-  function showMonitorPanel(siloData) {
-    const siloType = '筒仓';
+  async function showMonitorPanel(siloUserData) {
+    const siloType = siloUserData.type || '筒仓';
+    const siloNumber = siloUserData.编号 || siloUserData.id || 'Unknown';
+    
     const monitorTitle = monitorPanel.querySelector('.monitor-title');
-    monitorTitle.textContent = `${siloType} #${siloData.id} 监控播放`;
+    monitorTitle.textContent = `${siloType} #${siloNumber} 监控播放`;
     
     monitorPanel.style.display = 'block';
     monitorLoading.style.display = 'block';
-    monitorLoading.textContent = '正在连接监控流...';
+    monitorLoading.textContent = '正在获取监控数据...';
     monitorLoading.style.color = '#888';
     
-    // 延迟初始化播放器，确保面板已显示
-    setTimeout(() => {
-      initFlvPlayer();
-    }, 100);
+    try {
+      // 获取仓库的完整数据，包含videoStreamUrl
+      const siloParams = {
+        siloId: siloUserData.siloId || siloUserData.id,
+        siloNumber: siloUserData.编号,
+        siloType: siloUserData.type,
+        radius: siloUserData.radius,
+        height: siloUserData.height,
+        volume: siloUserData.volume,
+        capacity: siloUserData.最大容量_t
+      };
+      
+      const siloData = await fetchSiloAndMaterialData(siloParams);
+      
+      
+      if (!siloData || !siloData.siloInfo) {
+        throw new Error('无法获取仓库数据');
+      }
+      
+      const videoUrl = siloData.siloInfo.videoStreamUrl;
+      
+      // 检查videoUrl是否为空、null、undefined或空字符串
+      if (!videoUrl || videoUrl.trim() === '') {
+        const debugInfo = videoUrl === null ? 'null' : 
+                         videoUrl === undefined ? 'undefined' : 
+                         videoUrl === '' ? '空字符串' : `"${videoUrl}"`;
+        monitorLoading.textContent = `${siloType} #${siloNumber} 监控视频流配置异常 (${debugInfo})`;
+        monitorLoading.style.color = '#dc2626';
+        return;
+      }
+      
+      monitorLoading.textContent = '正在连接监控流...';
+      
+      // 延迟初始化播放器，确保面板已显示
+      setTimeout(() => {
+        initFlvPlayer(videoUrl);
+      }, 100);
+      
+    } catch (error) {
+      console.error('获取监控数据失败:', error);
+      monitorLoading.textContent = '获取监控数据失败，请稍后重试';
+      monitorLoading.style.color = '#dc2626';
+    }
   }
 
   // 关闭监控面板
@@ -2727,11 +2776,11 @@ function getSiloSelectedColor(obj) {
     const userData = selected.userData;
     const type = userData?.type;
     
-    // 只有筒仓才有监控功能
-    if (type === '筒仓') {
+    // 筒仓和平房仓都支持监控功能
+    if (type === '筒仓' || type === '平房仓' || type?.startsWith('平仓')) {
       showMonitorPanel(userData);
     } else {
-      alert('只有筒仓支持监控查看功能');
+      alert('该类型仓库暂不支持监控查看功能');
     }
   });
 
