@@ -3764,12 +3764,12 @@ function getSiloSelectedColor(obj) {
       ...outline.map(p => new THREE.Vector3(p.x, 0, p.y)),
       new THREE.Vector3(outline[0].x, 0, outline[0].y) // 闭合
     ]);
-    const outlineBottom = new THREE.Line(outlineGeometry, new THREE.LineBasicMaterial({color: lineColors.starSilo}));
-
-    const outlineTop = outlineBottom.clone();
+    const outlineTop = new THREE.Line(
+      outlineGeometry,
+      new THREE.LineBasicMaterial({color: lineColors.starSilo})
+    );
     outlineTop.position.y = height;
 
-    group.add(outlineBottom);
     group.add(outlineTop);
 
     if (addDetails) {
