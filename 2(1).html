@@ -1440,19 +1440,40 @@
   const monitorLoading = document.getElementById('monitorLoading');
   
   let flvPlayer = null;
-  const YINGSHI_MONITOR_URL = 'https://rtmp05open.ys7.com:9188/v3/openlive/C54441328_1_1.flv?expire=1761814378&id=901513545338388480&t=d8d642746d1c4827d6a11f1a4cd035c7ae35f3b27af62bb14611d3b9eef52f82&ev=101&supportH265=1';
+  let currentVideoStreamUrl = null; // 存储当前使用的视频流URL
+
+  // 重试监控流函数
+  function retryMonitorStream() {
+    monitorLoading.textContent = '正在重新连接监控流...';
+    monitorLoading.style.color = '#888';
+    monitorLoading.innerHTML = '正在重新连接监控流...';
+    
+    // 重新初始化播放器，使用当前存储的URL
+    setTimeout(() => {
+      initFlvPlayer(currentVideoStreamUrl);
+    }, 1000);
+  }
 
   // 监控播放器初始化函数
-  function initFlvPlayer() {
+  function initFlvPlayer(videoStreamUrl = null) {
     if (flvPlayer) {
       flvPlayer.destroy();
       flvPlayer = null;
     }
 
+    // 检查是否有有效的视频流URL
+    if (!videoStreamUrl) {
+      monitorLoading.textContent = '未找到视频流地址';
+      monitorLoading.style.color = '#ff4444';
+      return;
+    }
+    
+    const streamUrl = videoStreamUrl;
+
     if (flvjs.isSupported()) {
       flvPlayer = flvjs.createPlayer({
         type: 'flv',
-        url: YINGSHI_MONITOR_URL,
+        url: streamUrl,
         isLive: true,
         cors: true,
         withCredentials: false,
@@ -1470,7 +1491,7 @@
       
       flvPlayer.on(flvjs.Events.ERROR, (errorType, errorDetail, errorInfo) => {
         console.error('监控播放错误:', errorType, errorDetail, errorInfo);
-        monitorLoading.textContent = '监控流加载失败，请稍后重试';
+        monitorLoading.innerHTML = '监控流加载失败，请稍后重试 <button onclick="retryMonitorStream()" style="margin-left:10px;padding:2px 8px;background:#007bff;color:white;border:none;border-radius:3px;cursor:pointer;">重试</button>';
         monitorLoading.style.color = '#dc2626';
       });
       
@@ -1478,21 +1499,24 @@
         flvPlayer.load();
       } catch (e) {
         console.error('FLV播放器加载失败:', e);
-        monitorLoading.textContent = '监控播放器初始化失败';
+        monitorLoading.innerHTML = '监控播放器初始化失败 <button onclick="retryMonitorStream()" style="margin-left:10px;padding:2px 8px;background:#007bff;color:white;border:none;border-radius:3px;cursor:pointer;">重试</button>';
         monitorLoading.style.color = '#dc2626';
       }
     } else {
       console.error('浏览器不支持FLV播放');
-      monitorLoading.textContent = '当前浏览器不支持FLV视频播放';
+      monitorLoading.innerHTML = '当前浏览器不支持FLV视频播放<br><small style="font-size:12px;">建议使用Chrome、Firefox或Edge浏览器</small>';
       monitorLoading.style.color = '#dc2626';
     }
   }
 
   // 显示监控面板
-  function showMonitorPanel(siloData) {
+  function showMonitorPanel(siloData, videoStreamUrl = null) {
     const siloType = siloData.type === '星仓' ? '★星仓' : '筒仓';
     const monitorTitle = monitorPanel.querySelector('.monitor-title');
     monitorTitle.textContent = `${siloType} #${siloData.id} 监控播放`;
+    
+    // 存储当前使用的视频流URL
+    currentVideoStreamUrl = videoStreamUrl;
     
     monitorPanel.style.display = 'block';
     monitorLoading.style.display = 'block';
@@ -1501,7 +1525,7 @@
     
     // 延迟初始化播放器，确保面板已显示
     setTimeout(() => {
-      initFlvPlayer();
+      initFlvPlayer(currentVideoStreamUrl);
     }, 100);
   }
 
@@ -2386,7 +2410,7 @@ function getSiloSelectedColor(obj) {
   });
 
   // 监控按钮事件监听
-  btnMonitor.addEventListener('click', (e) => {
+  btnMonitor.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (!selected) return;
     const userData = selected.userData;
@@ -2394,7 +2418,32 @@ function getSiloSelectedColor(obj) {
     
     // 只有筒仓和星仓才有监控功能
     if (type === '筒仓' || type === '星仓') {
-      showMonitorPanel(userData);
+      try {
+        // 获取最新的API数据
+        const apiData = await fetchAllSilosFromAPI();
+        const siloId = userData.id;
+        
+        // 从API数据中查找对应的仓库信息
+        let videoStreamUrl = null;
+        if (apiData && apiData.siloList) {
+          const matchingSilo = apiData.siloList.find(silo => 
+            silo.siloInfo && silo.siloInfo.id === siloId
+          );
+          
+          if (matchingSilo && matchingSilo.siloInfo && matchingSilo.siloInfo.videoStreamUrl) {
+            videoStreamUrl = matchingSilo.siloInfo.videoStreamUrl;
+            console.log(`找到仓库 ${siloId} 的视频流URL:`, videoStreamUrl);
+          } else {
+            console.warn(`未找到仓库 ${siloId} 的视频流URL，使用默认URL`);
+          }
+        }
+        
+        showMonitorPanel(userData, videoStreamUrl);
+      } catch (error) {
+        console.error('获取监控视频流失败:', error);
+        // 如果获取API数据失败，仍然显示监控面板但使用默认URL
+        showMonitorPanel(userData);
+      }
     } else {
       alert('只有筒仓和星仓支持监控查看功能');
     }
@@ -4019,13 +4068,3 @@ function getSiloSelectedColor(obj) {
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
