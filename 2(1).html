@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>仓库园区立体透视图 - 线框模式</title>l
+  <title>明珠仓- 线框模式</title>l
   <style>
     :root {
       --panel-bg: rgba(255, 255, 255, 0.95);
@@ -2153,6 +2153,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
+        <div style="font-weight:bold;font-size:18px;margin-bottom:8px;">明珠仓</div>
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}
         <div>高度: 53.8米</div>
@@ -2215,6 +2216,7 @@ function getSiloSelectedColor(obj) {
       }
 
       detailPanel.innerHTML = `
+        <div style="font-weight:bold;font-size:18px;margin-bottom:8px;">明珠仓</div>
         <div style="font-weight:600;margin-bottom:6px;">地磅详情 ${ud.编号 || '#' + ud.id}</div>
         <div>状态: <span style="color: ${ud.状态 === '称重中' ? '#FF5722' : '#4CAF50'}; font-weight: bold;">${ud.状态}</span></div>
         ${vehicleDetailsHtml}
@@ -2250,6 +2252,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
+        <div style="font-weight:bold;font-size:18px;margin-bottom:8px;">明珠仓</div>
         <div style="font-weight:600;margin-bottom:6px;">平仓P01详情 #${ud.编号 || ud.id}</div>
         <div>最大容量: 2600 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
