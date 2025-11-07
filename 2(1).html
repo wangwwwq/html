@@ -1506,7 +1506,10 @@
     function showMonitorPanel(siloData) {
         const siloType = '筒仓';
         const monitorTitle = monitorPanel.querySelector('.monitor-title');
-        monitorTitle.textContent = `锦州锦港库 - ${siloType} #${siloData.id} 监控播放`;
+        monitorTitle.innerHTML = `
+            <div style="font-size: 18px; font-weight: bold; color: #000000;">锦州锦港库</div>
+            <div style="font-size: 14px; margin-top: 4px;">${siloType} #${siloData.id} 监控播放</div>
+        `;
 
         monitorPanel.style.display = 'block';
         monitorLoading.style.display = 'block';
@@ -2487,7 +2490,6 @@
         const ud = selected.userData || {};
 
         if (ud.type === '筒仓') {
-            const typeLabel = '锦州锦港库 - 筒仓详情';
             const materials = ud.物料详情 || [];
 
 
@@ -2517,7 +2519,8 @@
             }
 
             detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #000000;">锦州锦港库</div>
+        <div style="font-weight:600;margin-bottom:6px;">筒仓详情 ${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>半径: ${ud.半径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
         <div>容积: ${ud.容积_m3} m³</div>
@@ -2579,14 +2582,14 @@
             }
 
             detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">锦州锦港库 - 地磅详情 ${ud.编号 || '#' + ud.id}</div>
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #000000;">锦州锦港库</div>
+        <div style="font-weight:600;margin-bottom:6px;">地磅详情 ${ud.编号 || '#' + ud.id}</div>
         <div>状态: <span style="color: ${ud.状态 === '称重中' ? '#FF5722' : '#4CAF50'}; font-weight: bold;">${ud.状态}</span></div>
         ${vehicleDetailsHtml}
         ${dataSourceHtml}
       `;
         } else if (ud.type === '星仓') {
             // 处理星仓详情
-            const typeLabel = '锦州锦港库 - ⭐ 星仓详情';
             const materials = ud.物料详情 || [];
 
             let materialsHtml = '';
@@ -2625,7 +2628,8 @@
             }
 
             detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #000000;">锦州锦港库</div>
+        <div style="font-weight:600;margin-bottom:6px;">⭐ 星仓详情 ${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #ff6b35; font-weight: bold; text-align: center; margin-bottom: 6px; background: #fff3e0; padding: 4px; border-radius: 4px;">⭐ ${ud.特殊标识}</div>` : ''}
         <div>半径: ${ud.半径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
@@ -2640,7 +2644,6 @@
       `;
         } else if (ud.type === '露天堆') {
             // 处理露天堆详情
-            const typeLabel = '锦州锦港库 - 🏗️ 露天堆详情';
             const siloInfo = ud.siloInfo || {};
             const materials = ud.materialDetails || [];
             const current = siloInfo.currentStorage || '0';
@@ -2681,7 +2684,8 @@
             }
 
             detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">${typeLabel}</div>
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #000000;">锦州锦港库</div>
+        <div style="font-weight:600;margin-bottom:6px;">🏗️ 露天堆详情</div>
         <div>名称: ${ud.名称 || '未命名'}</div>
         <div>当前储量: ${current} 吨</div>
         ${materialsHtml}
@@ -2717,7 +2721,8 @@
             }
 
             detailPanel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">锦州锦港库 - 平仓详情 #${ud.编号 || ud.id}</div>
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #000000;">锦州锦港库</div>
+        <div style="font-weight:600;margin-bottom:6px;">平仓详情 #${ud.编号 || ud.id}</div>
         <div>最大堆叠体积: ${ud.体积_m3} m³</div>
         <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
