@@ -2122,6 +2122,7 @@ function getSiloSelectedColor(obj) {
 
     if (ud.type === '筒仓' || ud.type === '星仓') {
       const typeLabel = ud.type === '星仓' ? '★星仓详情' : '筒仓详情';
+      const maxCapacity = ud.type === '星仓' ? '1250吨' : '5000吨';
       const materials = ud.物料详情 || [];
       
       
@@ -2156,7 +2157,7 @@ function getSiloSelectedColor(obj) {
         ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}
         <div>高度: 53.8米</div>
         <div>直径: 14.5米</div>
-        <div>最大容量: 5000吨</div>
+        <div>最大容量: ${maxCapacity}</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
         <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
