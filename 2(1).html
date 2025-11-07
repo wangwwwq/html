@@ -2400,9 +2400,8 @@ function getSiloSelectedColor(obj) {
       
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
-        ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>半径: ${ud.半径_m} 米</div>
+        ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>直径: ${ud.直径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
-        <div>容积: ${ud.容积_m3} m³</div>
         <div>最大容量: ${ud.最大容量_t} 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
@@ -2509,7 +2508,7 @@ function getSiloSelectedColor(obj) {
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #ff6b35; font-weight: bold; text-align: center; margin-bottom: 6px; background: #fff3e0; padding: 4px; border-radius: 4px;">⭐ ${ud.特殊标识}</div>` : ''}
-        <div>半径: ${ud.半径_m} 米</div>
+        <div>直径: ${ud.直径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
         <div>最大容量: ${ud.最大容量_t} 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
@@ -3270,10 +3269,11 @@ function getSiloSelectedColor(obj) {
       id: siloInfo.id,
       编号: siloNumber || '未分配', // 使用本地编号，如果没有则显示"未分配"
       owner: hasMaterialData ? siloInfo.owner : undefined,
+      直径_m: 10.4, // 固定直径
       半径_m: '未提供', // 固定显示"未提供"
-      高度_m: '未提供', // 固定显示"未提供"
+      高度_m: 38.3, // 固定高度
       容积_m3: '未提供', // 固定显示"未提供"
-      最大容量_t: '未提供', // 固定显示"未提供"
+      最大容量_t: 1800, // 固定最大容量
       当前储量_t: siloInfo.currentStorage,
       仓内温度_c: siloInfo.temperature,
       仓内湿度_percent: siloInfo.humidity,
@@ -3487,10 +3487,11 @@ function getSiloSelectedColor(obj) {
       id: starSiloNumber, // 使用本地分配的星仓编号
       编号: starSiloNumber, // 使用本地分配的星仓编号，不使用API返回的编号
       owner: hasMaterialData ? siloInfo.owner : undefined,
+      直径_m: 10.4, // 固定直径
       半径_m: '未提供', // 固定显示"未提供"
-      高度_m: '未提供', // 固定显示"未提供"
+      高度_m: 38.3, // 固定高度
       容积_m3: '未提供', // 固定显示"未提供"
-      最大容量_t: '未提供', // 固定显示"未提供"
+      最大容量_t: 450, // 固定最大容量
       当前储量_t: siloInfo.currentStorage,
       仓内温度_c: siloInfo.temperature,
       仓内湿度_percent: siloInfo.humidity,
