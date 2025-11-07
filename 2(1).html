@@ -2251,9 +2251,7 @@ function getSiloSelectedColor(obj) {
       
       detailPanel.innerHTML = `
         <div style="font-weight:600;margin-bottom:6px;">平仓P01详情 #${ud.编号 || ud.id}</div>
-        <div>最大堆叠体积: ${ud.体积_m3} m³</div>
-        <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
-        <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
+        <div>最大容量: 2600 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         ${materialsHtml}
       `;
