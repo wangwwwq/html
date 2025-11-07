@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>仓库园区立体透视图 - 线框模式</title>l
+  <title>钦州侨益仓 - 线框模式</title>l
   <style>
     :root {
       --panel-bg: rgba(255, 255, 255, 0.95);
@@ -2399,6 +2399,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
+        <div style="font-size: 18px; font-weight: bold; color: #000000; margin-bottom: 10px;">钦州侨益仓</div>
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}        <div>直径: ${ud.直径_m} 米</div>
         <div>高度: ${ud.高度_m} 米</div>
@@ -2460,6 +2461,7 @@ function getSiloSelectedColor(obj) {
       }
 
       detailPanel.innerHTML = `
+        <div style="font-size: 18px; font-weight: bold; color: #000000; margin-bottom: 10px;">钦州侨益仓</div>
         <div style="font-weight:600;margin-bottom:6px;">地磅详情 ${ud.编号 || '#' + ud.id}</div>
         <div>状态: <span style="color: ${ud.状态 === '称重中' ? '#FF5722' : '#4CAF50'}; font-weight: bold;">${ud.状态}</span></div>
         ${vehicleDetailsHtml}
@@ -2506,6 +2508,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
+        <div style="font-size: 18px; font-weight: bold; color: #000000; margin-bottom: 10px;">钦州侨益仓</div>
         <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #ff6b35; font-weight: bold; text-align: center; margin-bottom: 6px; background: #fff3e0; padding: 4px; border-radius: 4px;">⭐ ${ud.特殊标识}</div>` : ''}
         <div>直径: ${ud.直径_m} 米</div>
@@ -2547,6 +2550,7 @@ function getSiloSelectedColor(obj) {
       }
       
       detailPanel.innerHTML = `
+        <div style="font-size: 18px; font-weight: bold; color: #000000; margin-bottom: 10px;">钦州侨益仓</div>
         <div style="font-weight:600;margin-bottom:6px;">详情 #${ud.编号 || ud.id}</div>
         <div>最大堆叠体积: ${ud.体积_m3} m³</div>
         <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
