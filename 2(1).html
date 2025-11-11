@@ -20,75 +20,6 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
         }
 
-        #loginOverlay {
-            position: fixed;
-            inset: 0;
-            z-index: 999;
-            display: grid;
-            place-items: center;
-            background: linear-gradient(135deg, #f7fafc, #eef2f7);
-        }
-
-        #loginCard {
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-            padding: 24px 24px 20px;
-            width: 320px;
-        }
-
-        #loginCard h2 {
-            margin: 0 0 12px;
-            font-size: 18px;
-            color: #111;
-        }
-
-        .form-row {
-            margin: 10px 0;
-        }
-
-        .form-row label {
-            display: block;
-            font-size: 13px;
-            color: #444;
-            margin-bottom: 6px;
-        }
-
-        .form-row input {
-            width: 100%;
-            height: 34px;
-            padding: 6px 10px;
-            border: 1px solid #d5d7db;
-            border-radius: 6px;
-            outline: none;
-            box-sizing: border-box;
-        }
-
-        .form-actions {
-            margin-top: 14px;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .btn {
-            background: #2563eb;
-            color: #fff;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-
-        .btn:active {
-            transform: translateY(1px);
-        }
-
-        .error {
-            color: #b91c1c;
-            font-size: 12px;
-            min-height: 16px;
-        }
 
         #viewport {
             width: 90vw;
@@ -223,6 +154,19 @@
             border-radius: 999px;
             padding: 8px;
             backdrop-filter: saturate(160%) blur(6px);
+        }
+
+        .btn {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .btn:active {
+            transform: translateY(1px);
         }
 
         .action-bar .btn {
@@ -397,27 +341,6 @@
     </style>
 </head>
 <body>
-<div id="loginOverlay">
-    <div id="loginCard">
-        <h2>登录</h2>
-        <form id="loginForm">
-            <div class="form-row">
-                <label for="username">用户名</label>
-                <input id="username" name="username" autocomplete="username" placeholder="请输入用户名"/>
-            </div>
-            <div class="form-row">
-                <label for="password">密码</label>
-                <input id="password" name="password" type="password" autocomplete="current-password"
-                       placeholder="请输入密码"/>
-            </div>
-            <div class="form-actions">
-                <button type="submit" class="btn">登录</button>
-                <span id="loginError" class="error"></span>
-            </div>
-        </form>
-    </div>
-</div>
-
 <div id="viewport"></div>
 <div id="infoPanel"></div>
 <div id="detailPanel"></div>
@@ -500,28 +423,8 @@
     import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
     import {CSS2DRenderer, CSS2DObject} from 'three/addons/renderers/CSS2DRenderer.js';
 
-    // 登录逻辑
-    const loginOverlay = document.getElementById('loginOverlay');
-    const loginForm = document.getElementById('loginForm');
-    const loginError = document.getElementById('loginError');
-    const usernameInput = document.getElementById('username');
-    const passwordInput = document.getElementById('password');
+    // 登录模块已移除，直接进入页面
     let currentUser = null;
-
-    loginForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const u = usernameInput.value.trim();
-        const p = passwordInput.value;
-        if (u === 'JF' && p === '123456') {
-            currentUser = u;
-            loginOverlay.style.display = 'none';
-        } else {
-            currentUser = u;
-            loginOverlay.style.display = 'none';
-            //loginError.textContent = '用户名或密码不正确';
-            //return;
-        }
-    });
 
     // 配置获取
     async function fetchYardConfig() {
