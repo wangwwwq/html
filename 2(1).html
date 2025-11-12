@@ -425,7 +425,13 @@
   // 配置获取
   async function fetchYardConfig() {
     return {
-      yard: {length: 300, width: 310, roadWidth: 20}, // 将length从350减少到300，缩小西方向50米；width保持290米
+      yard: {
+        length: 300,
+        width: 310,
+        roadWidth: 20,
+        northExtent: 90,
+        southExtent: 190
+      }, // 将length从350减少到300，缩小西方向50米，同时压缩道路北侧空地
       warehouse: {
         count: 1,
         length: 40,
@@ -1470,18 +1476,24 @@
     controls.update();
   }
 
-  function buildYardGrid(length, width) {
-    const size = Math.max(length, width);
-    const divisions = size / 10;
+  function buildYardGrid(length, width, options = {}) {
+    const northExtent = options.northExtent ?? width / 2;
+    const southExtent = options.southExtent ?? width / 2;
+    const totalWidth = northExtent + southExtent;
+
+    const size = Math.max(length, totalWidth);
+    const divisions = Math.max(1, Math.round(size / 10));
     const grid = new THREE.GridHelper(size, divisions, 0xaaaaaa, 0xcccccc);
-    grid.scale.z = width / length;
+    grid.scale.x = length / size;
+    grid.scale.z = totalWidth / size;
+    grid.position.z = (northExtent - southExtent) / 2;
     scene.add(grid);
 
-    const halfL = length / 2, halfW = width / 2;
+    const halfL = length / 2;
     const borderPts = [
-      [-halfL, 0, -halfW], [halfL, 0, -halfW],
-      [halfL, 0, halfW], [-halfL, 0, halfW],
-      [-halfL, 0, -halfW]
+      [-halfL, 0, -southExtent], [halfL, 0, -southExtent],
+      [halfL, 0, northExtent], [-halfL, 0, northExtent],
+      [-halfL, 0, -southExtent]
     ].map(([x, y, z]) => new THREE.Vector3(x, y, z));
     const geom = new THREE.BufferGeometry().setFromPoints(borderPts);
     const border = new THREE.Line(geom, new THREE.LineBasicMaterial({color: 0x888888}));
@@ -1554,102 +1566,169 @@
   // 大门建造函数
   function buildEntranceGate({
     span = 20,
-    pillarHeight = 8,
-    pillarWidth = 1.2,
-    pillarDepth = 1.6,
-    beamHeight = 1.2,
-    beamDepth = 1,
+    pillarHeight,
+    pillarWidth,
+    pillarDepth,
+    beamHeight,
+    beamDepth,
     color = 0x9fa4ad,
     accentColor = 0x2b6cb0,
-    lightColor = 0xffd27f
+    armColor = 0xffffff,
+    stripeColor = 0xff4b4b,
+    lightColor = 0xffaa33,
+    columnHeight,
+    columnWidth,
+    columnDepth,
+    baseHeight,
+    armRaisedAngle = Math.PI / 5
   } = {}) {
     const group = new THREE.Group();
     const halfSpan = span / 2;
 
-    const pillarGeo = new THREE.BoxGeometry(pillarDepth, pillarHeight, pillarWidth);
-    const pillarMat = new THREE.MeshStandardMaterial({
+    // 兼容旧参数命名
+    const finalColumnHeight = columnHeight ?? pillarHeight ?? 4.5;
+    const finalColumnWidth = columnWidth ?? pillarWidth ?? 0.9;
+    const finalColumnDepth = columnDepth ?? pillarDepth ?? 1.2;
+    const finalBaseHeight = baseHeight ?? 0.35;
+
+    const supportMat = new THREE.MeshStandardMaterial({
       color,
-      roughness: 0.65,
+      roughness: 0.6,
+      metalness: 0.25
+    });
+
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: accentColor,
+      roughness: 0.5,
+      metalness: 0.35
+    });
+
+    const armMat = new THREE.MeshStandardMaterial({
+      color: armColor,
+      roughness: 0.35,
       metalness: 0.2
     });
 
-    const baseGeo = new THREE.BoxGeometry(pillarDepth * 1.2, 0.3, pillarWidth * 1.8);
+    const stripeMat = new THREE.MeshStandardMaterial({
+      color: stripeColor,
+      roughness: 0.4,
+      metalness: 0.2
+    });
+
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x686868,
+      color: 0x51545a,
       roughness: 0.85,
       metalness: 0.08
     });
 
-    const addPillar = zPos => {
-      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-      pillar.position.set(0, pillarHeight / 2, zPos);
-      pillar.castShadow = true;
-      pillar.receiveShadow = true;
-      group.add(pillar);
+    const warningMat = new THREE.MeshStandardMaterial({
+      color: lightColor,
+      emissive: lightColor,
+      emissiveIntensity: 0.6,
+      roughness: 0.3,
+      metalness: 0.25
+    });
 
-      const pillarFrame = createWireframe(pillarGeo, 0x555555);
-      pillarFrame.position.set(0, pillarHeight / 2, zPos);
-      group.add(pillarFrame);
+    const laneMargin = Math.max(1.5, finalColumnWidth * 1.5);
+    const columnPositions = [
+      -halfSpan + laneMargin,
+      halfSpan - laneMargin
+    ];
 
+    const armThickness = Math.max(0.18, (beamDepth ?? 0.5) * 0.25);
+    const armHeight = Math.max(0.22, (beamHeight ?? 1.0) * 0.4);
+    const armLength = Math.max(3, halfSpan - laneMargin * 0.85);
+
+    columnPositions.forEach((zPos, idx) => {
+      const direction = idx === 0 ? 1 : -1;
+
+      const columnGeo = new THREE.BoxGeometry(finalColumnDepth, finalColumnHeight, finalColumnWidth);
+      const column = new THREE.Mesh(columnGeo, supportMat);
+      column.position.set(0, finalColumnHeight / 2, zPos);
+      column.castShadow = true;
+      column.receiveShadow = true;
+      group.add(column);
+
+      const columnFrame = createWireframe(columnGeo, 0x2f3542);
+      columnFrame.position.copy(column.position);
+      group.add(columnFrame);
+
+      const accentPanelGeo = new THREE.BoxGeometry(finalColumnDepth * 0.4, finalColumnHeight * 0.6, finalColumnWidth * 0.9);
+      const accentPanel = new THREE.Mesh(accentPanelGeo, accentMat);
+      accentPanel.position.set(finalColumnDepth * 0.35, finalColumnHeight * 0.65, zPos);
+      accentPanel.castShadow = true;
+      group.add(accentPanel);
+
+      const baseGeo = new THREE.BoxGeometry(finalColumnDepth * 1.4, finalBaseHeight, finalColumnWidth * 2);
       const base = new THREE.Mesh(baseGeo, baseMat);
-      base.position.set(0, 0.15, zPos);
+      base.position.set(0, finalBaseHeight / 2, zPos);
       base.receiveShadow = true;
       group.add(base);
 
-      const baseFrame = createWireframe(baseGeo, 0x444444);
-      baseFrame.position.set(0, 0.15, zPos);
+      const baseFrame = createWireframe(baseGeo, 0x1f2933);
+      baseFrame.position.copy(base.position);
       group.add(baseFrame);
 
-      const lampGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.7, 14);
-      const lampMat = new THREE.MeshStandardMaterial({
-        color: lightColor,
-        emissive: lightColor,
-        emissiveIntensity: 0.5,
-        roughness: 0.4,
-        metalness: 0.3
-      });
-      const lamp = new THREE.Mesh(lampGeo, lampMat);
-      lamp.position.set(pillarDepth / 2 + 0.1, pillarHeight - 1, zPos);
-      lamp.rotation.z = Math.PI / 2;
-      lamp.castShadow = true;
-      group.add(lamp);
-    };
+      const warningLightGeo = new THREE.SphereGeometry(0.22, 16, 12);
+      const warningLight = new THREE.Mesh(warningLightGeo, warningMat);
+      warningLight.position.set(finalColumnDepth * 0.45, finalColumnHeight - 0.4, zPos);
+      warningLight.castShadow = true;
+      group.add(warningLight);
 
-    addPillar(halfSpan - pillarWidth / 2);
-    addPillar(-halfSpan + pillarWidth / 2);
+      const armPivot = new THREE.Group();
+      armPivot.position.set(finalColumnDepth * 0.5, finalColumnHeight * 0.78, zPos);
+      armPivot.rotation.x = armRaisedAngle;
+      group.add(armPivot);
 
-    const beamGeo = new THREE.BoxGeometry(beamDepth, beamHeight, span + pillarWidth * 0.6);
-    const beam = new THREE.Mesh(beamGeo, pillarMat);
-    beam.position.set(0, pillarHeight + beamHeight / 2, 0);
-    beam.castShadow = true;
-    beam.receiveShadow = true;
-    group.add(beam);
+      const armGeo = new THREE.BoxGeometry(armThickness, armHeight, armLength);
+      const arm = new THREE.Mesh(armGeo, armMat);
+      arm.position.set(0, 0, direction * armLength / 2);
+      arm.castShadow = true;
+      armPivot.add(arm);
 
-    const beamFrame = createWireframe(beamGeo, 0x555555);
-    beamFrame.position.copy(beam.position);
-    group.add(beamFrame);
+      const armFrame = createWireframe(armGeo, 0x1a202c);
+      armFrame.position.copy(arm.position);
+      armPivot.add(armFrame);
 
-    const panelWidth = span * 0.6;
-    const panelHeight = beamHeight * 0.75;
-    const panelThickness = Math.max(0.3, beamDepth * 0.5);
-    const panelGeo = new THREE.BoxGeometry(panelThickness, panelHeight, panelWidth);
-    const panelMat = new THREE.MeshStandardMaterial({
-      color: accentColor,
-      roughness: 0.5,
-      metalness: 0.25
+      const stripeCount = Math.max(3, Math.floor(armLength / 1.2));
+      const stripeDepth = armLength / stripeCount;
+      for (let i = 0; i < stripeCount; i++) {
+        const stripeGeo = new THREE.BoxGeometry(armThickness * 1.02, armHeight * 1.02, stripeDepth * 0.92);
+        const stripe = new THREE.Mesh(stripeGeo, i % 2 === 0 ? stripeMat : armMat);
+        stripe.position.set(0, 0, direction * (i + 0.5) * stripeDepth);
+        stripe.castShadow = true;
+        armPivot.add(stripe);
+      }
+
+      const stopperGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.4, 12);
+      const stopper = new THREE.Mesh(stopperGeo, baseMat);
+      stopper.position.set(0, 0.2, zPos + direction * (armLength + 0.5));
+      stopper.rotation.x = Math.PI / 2;
+      stopper.receiveShadow = true;
+      group.add(stopper);
+
+      const stopperFrame = createWireframe(stopperGeo, 0x171e26);
+      stopperFrame.position.copy(stopper.position);
+      stopperFrame.rotation.copy(stopper.rotation);
+      group.add(stopperFrame);
     });
-    const panel = new THREE.Mesh(panelGeo, panelMat);
-    panel.position.set(beamDepth / 2 + panelThickness / 2 + 0.05, pillarHeight + beamHeight / 2, 0);
-    panel.castShadow = true;
-    group.add(panel);
 
-    const panelFrame = createWireframe(panelGeo, 0x1f4b99);
-    panelFrame.position.copy(panel.position);
-    group.add(panelFrame);
+    const stopLineGeo = new THREE.PlaneGeometry(span - laneMargin * 0.6, 1.4);
+    const stopLineMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0,
+      side: THREE.DoubleSide
+    });
+    const stopLine = new THREE.Mesh(stopLineGeo, stopLineMat);
+    stopLine.rotation.x = -Math.PI / 2;
+    stopLine.position.set(0, 0.02, 0);
+    stopLine.receiveShadow = true;
+    group.add(stopLine);
 
     group.userData = {
-      type: 'entranceGate',
-      name: 'Entrance Gate'
+      type: 'entranceBarrierGate',
+      name: 'Entrance Barrier Gate'
     };
 
     return group;
@@ -3942,8 +4021,17 @@ function getSiloSelectedColor(obj) {
     testColorParsing();
     
     const cfg = await fetchYardConfig();
-    const {length: yardL, width: yardW, roadWidth} = cfg.yard;
-    buildYardGrid(yardL, yardW);
+    const {
+      length: yardL,
+      width: yardW,
+      roadWidth,
+      northExtent: yardNorthConfig,
+      southExtent: yardSouthConfig
+    } = cfg.yard;
+    const yardNorthExtent = yardNorthConfig ?? yardW / 2;
+    const yardSouthExtent = yardSouthConfig ?? yardW / 2;
+    const yardWidth = yardNorthExtent + yardSouthExtent;
+    buildYardGrid(yardL, yardWidth, {northExtent: yardNorthExtent, southExtent: yardSouthExtent});
     const roadZOffset = 40; // 道路向北移动40米（正值向北）
     buildMainRoad(roadWidth, yardL, roadZOffset);
     buildSidewalkTrees(roadWidth, yardL, 10, roadZOffset);
@@ -3985,7 +4073,7 @@ function getSiloSelectedColor(obj) {
       beamDepth: 1.0,
       accentColor: 0xc97a3d // 橙色标识面板
     });
-    entranceGate3.position.set(5, 0, -yardW / 2 +180); // 在场地南侧入口，向右移动5米
+    entranceGate3.position.set(5, 0, -yardSouthExtent +215); // 在场地南侧入口，向右移动5米并向北移动10米
     entranceGate3.rotation.y = Math.PI / 2; // 旋转90度面向北
     entranceGate3.scale.set(1.3, 2.2, 1.3);
     scene.add(entranceGate3);
@@ -4223,7 +4311,7 @@ function getSiloSelectedColor(obj) {
    
 
 
-    fitCameraToYard(yardL, yardW, wH + rH, 1.0);
+    fitCameraToYard(yardL, yardWidth, wH + rH, 1.0);
     updateCompass();
     
     // 初始化完成后启动自动刷新
