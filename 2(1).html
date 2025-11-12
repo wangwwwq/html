@@ -2079,7 +2079,6 @@
       
       infoPanel.innerHTML = `
         <div><b>平仓 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
-        <div>体积: ${v} m³</div>
         <div>容量: ${cap} 吨</div>
         <div>当前: ${current} 吨</div>
         ${materialInfo}
@@ -2451,8 +2450,6 @@ function getSiloSelectedColor(obj) {
       detailPanel.innerHTML = `
         <div style="font-size: 18px; font-weight: bold; color: #000000; margin-bottom: 10px;">钦州侨益仓</div>
         <div style="font-weight:600;margin-bottom:6px;">详情 #${ud.编号 || ud.id}</div>
-        <div>最大堆叠体积: ${ud.体积_m3} m³</div>
-        <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         ${materialsHtml}
