@@ -565,6 +565,13 @@
 
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
   const noNumberSiloColor = 0xFF6B6B; // 红色，表示没有分配编号的筒仓
+  const stackFillConfig = {
+    filledColor: 0x22c55e,  // 绿色表示已存储的货物
+    emptyColor: 0x9ca3af,   // 灰色表示空余容量
+    innerScale: 0.95,       // 稍微缩小内部填充，更好地显示边界
+    filledOpacity: 0.8,     // 适当透明度，便于观察
+    emptyOpacity: 0.4       // 空余部分更透明
+  };
 
   // 颜色转换工具函数
   function getColorCSS(hexColor) {
@@ -1971,9 +1978,8 @@
       const stackNumber = position.number;
       
       // 创建平仓几何体
-      const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
+      const stack = new THREE.Group();
       stack.position.set(position.x, sy / 2, position.z);
-      stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
       const vol = (sx * sy * sz).toFixed(0);
       const id = stackIdSeq++;
 
@@ -1987,16 +1993,15 @@
           radius: Math.max(sx, sz) / 2,
           height: sy,
           volume: vol,
-          capacity: (vol * 0.75).toFixed(1) // 假设密度0.75吨/立方米
         });
         
       } catch (error) {
-        // API调用失败时，使用计算的默认容量（密度0.75吨/立方米）
+        // API调用失败时，使用固定的最大容量10000吨
         apiData = {
           siloInfo: {
             id: stackNumber,
             type: `平仓${stackNumber}`,
-            maxCapacity: (vol * 0.75).toFixed(1),
+            maxCapacity: '10000.0',
             currentStorage: '0.0'
           },
           materialDetails: [],
@@ -2011,17 +2016,27 @@
       const hasMaterialData = activeMaterials.length > 0;
       
       const finalType = siloInfo.type || `平仓${stackNumber}`;
+
+      const numericMaxCapacity = toNumber(siloInfo.maxCapacity);
+      const numericCurrentStorage = toNumber(siloInfo.currentStorage);
+      const safeMaxCapacity = Number.isFinite(numericMaxCapacity) && numericMaxCapacity > 0 
+        ? numericMaxCapacity 
+        : 10000; // 使用固定的10000吨作为默认最大容量
+      const safeCurrentStorage = Number.isFinite(numericCurrentStorage) ? Math.max(numericCurrentStorage, 0) : 0;
       
       stack.userData = {
         type: '平仓', // 设置为平仓类型，以便正确处理选中颜色
         originalType: finalType, // 保留原始类型信息用于显示
+        stackSize: { length: sx, width: sz, height: sy },
+        maxCapacity: safeMaxCapacity,
+        currentStorage: safeCurrentStorage,
         id: stackNumber, // 强制使用本地配置的堆垛名称
         编号: stackNumber, // 强制使用本地配置的堆垛名称
         owner: hasMaterialData ? siloInfo.owner : undefined,
         仓库序号: index + 1,
         体积_m3: '未提供', // 固定显示"未提供"
         尺寸_m: '未提供', // 固定显示"未提供"
-        最大容量_t: '未提供', // 固定显示"未提供"
+        最大容量_t: '10000', // 固定显示10000吨
         当前储量_t: siloInfo.currentStorage,
         物料详情: hasMaterialData ? activeMaterials : [],
         hasMaterialData: hasMaterialData,
@@ -2032,6 +2047,12 @@
       };
 
       // 根据是否有物料数据设置颜色：有数据显示绿色，无数据显示灰色
+      // 创建堆垛的线框几何体
+      const stackGeometry = new THREE.BoxGeometry(sx, sy, sz);
+      const stackWireframe = createWireframe(stackGeometry, lineColors.stack);
+      stack.add(stackWireframe);
+
+      updateStackFillVisual(stack);
       const baseColor = hasMaterialData ? lineColors.ownerJF : lineColors.stack;
       setStackColor(stack, baseColor);
 
@@ -2295,6 +2316,8 @@ function setStackColor(obj, color) {
           }
         }
       });
+    } else if (obj.userData?.stackFill) {
+      applyFlatStackColorState(obj, color);
     } else if (obj.material) {
       // 为平仓设置颜色
       obj.material.color.set(targetColor);
@@ -2338,6 +2361,166 @@ function getStackBaseColor(obj) {
     }
     return lineColors.ownerJF;
   }
+
+  function ensureFlatStackFillMeshes(stack) {
+    if (!stack) return null;
+    const stackSize = stack.userData?.stackSize;
+    if (!stackSize) return null;
+    if (stack.userData.stackFill) return stack.userData.stackFill;
+
+    const shrinkRatio = Math.min(Math.max(stackFillConfig.innerScale || 1, 0.3), 1);
+    const innerLength = stackSize.length * shrinkRatio;
+    const innerWidth = stackSize.width * shrinkRatio;
+    const innerHeight = stackSize.height;
+    const filledGeometry = new THREE.BoxGeometry(innerLength, innerHeight, innerWidth);
+    const emptyGeometry = new THREE.BoxGeometry(innerLength, innerHeight, innerWidth);
+
+    const filledMaterial = new THREE.MeshStandardMaterial({
+      color: stackFillConfig.filledColor,
+      transparent: stackFillConfig.filledOpacity < 1,
+      opacity: stackFillConfig.filledOpacity,
+      roughness: 0.5,
+      metalness: 0.1
+    });
+    const emptyMaterial = new THREE.MeshStandardMaterial({
+      color: stackFillConfig.emptyColor,
+      transparent: stackFillConfig.emptyOpacity < 1,
+      opacity: stackFillConfig.emptyOpacity,
+      roughness: 0.65,
+      metalness: 0.05
+    });
+
+    const filledMesh = new THREE.Mesh(filledGeometry, filledMaterial);
+    const emptyMesh = new THREE.Mesh(emptyGeometry, emptyMaterial);
+    filledMesh.name = 'stack-fill-filled';
+    emptyMesh.name = 'stack-fill-empty';
+    filledMesh.castShadow = true;
+    filledMesh.receiveShadow = true;
+    emptyMesh.castShadow = true;
+    emptyMesh.receiveShadow = true;
+
+    stack.add(emptyMesh);
+    stack.add(filledMesh);
+
+    const fillData = { filledMesh, emptyMesh };
+    stack.userData.stackFill = fillData;
+    stack.userData.stackFillBaseColors = stack.userData.stackFillBaseColors || {
+      filled: stackFillConfig.filledColor,
+      empty: stackFillConfig.emptyColor
+    };
+    return fillData;
+  }
+
+  function updateStackFillVisual(stack) {
+    if (!stack) return;
+
+    const stackType = stack.userData?.type;
+    const isFlatStack = stackType === '平仓' || (typeof stackType === 'string' && stackType.startsWith('平仓'));
+    if (!isFlatStack) return;
+
+    const stackSize = stack.userData?.stackSize;
+    if (!stackSize) return;
+
+    const fillData = stack.userData.stackFill || ensureFlatStackFillMeshes(stack);
+    if (!fillData) return;
+
+    const safeCapacity = Number.isFinite(stack.userData?.maxCapacity) && stack.userData.maxCapacity > 0
+      ? stack.userData.maxCapacity
+      : 0;
+    const safeCurrent = Number.isFinite(stack.userData?.currentStorage)
+      ? Math.max(stack.userData.currentStorage, 0)
+      : 0;
+    const ratio = safeCapacity > 0 ? Math.min(Math.max(safeCurrent / safeCapacity, 0), 1) : 0;
+    stack.userData.fillRatio = ratio;
+
+    const emptyRatio = 1 - ratio;
+    
+    // 调试输出：显示详细的容量计算信息
+    console.log(`堆垛 ${stack.userData?.id || '未知'} 容量计算:`, {
+      maxCapacity: safeCapacity,
+      currentStorage: safeCurrent,
+      ratio: ratio,
+      percentage: (ratio * 100).toFixed(2) + '%',
+      emptyRatio: emptyRatio,
+      emptyPercentage: (emptyRatio * 100).toFixed(2) + '%'
+    });
+
+    const { filledMesh, emptyMesh } = fillData;
+    const length = stackSize.length;
+
+    // 已存储部分（绿色）- 从左侧开始，水平方向
+    if (filledMesh) {
+      if (ratio > 0) {
+        filledMesh.visible = true;
+        filledMesh.scale.x = ratio;  // 使用实际比例
+        filledMesh.scale.y = 1;      // 保持垂直方向不变
+        filledMesh.scale.z = 1;      // 保持深度方向不变
+        filledMesh.position.x = -length / 2 + (length * ratio) / 2;  // 从左侧开始定位
+        filledMesh.position.y = 0;   // 垂直居中
+        filledMesh.position.z = 0;   // 深度居中
+        // 确保颜色为绿色
+        filledMesh.material.color.set(stackFillConfig.filledColor);
+        filledMesh.material.opacity = stackFillConfig.filledOpacity;
+        filledMesh.material.transparent = true;
+      } else {
+        filledMesh.visible = false;  // 没有存储时隐藏绿色部分
+      }
+    }
+
+    // 空余部分（灰色）- 从右侧开始，水平方向
+    if (emptyMesh) {
+      if (emptyRatio > 0) {
+        emptyMesh.visible = true;
+        emptyMesh.scale.x = emptyRatio;  // 使用实际空余比例
+        emptyMesh.scale.y = 1;           // 保持垂直方向不变
+        emptyMesh.scale.z = 1;           // 保持深度方向不变
+        emptyMesh.position.x = length / 2 - (length * emptyRatio) / 2;  // 从右侧开始定位
+        emptyMesh.position.y = 0;        // 垂直居中
+        emptyMesh.position.z = 0;        // 深度居中
+        // 确保颜色为灰色
+        emptyMesh.material.color.set(stackFillConfig.emptyColor);
+        emptyMesh.material.opacity = stackFillConfig.emptyOpacity;
+        emptyMesh.material.transparent = true;
+      } else {
+        emptyMesh.visible = false;  // 完全满时隐藏灰色部分
+      }
+    }
+
+    // 在控制台输出容量信息（仅在有实际数据时）
+    if (ratio > 0 && safeCapacity > 0) {
+      console.log(`堆垛 ${stack.userData?.id || '未知'}: 容量 ${safeCapacity}t, 当前存储 ${safeCurrent}t, 占用率 ${(ratio * 100).toFixed(1)}%`);
+    }
+  }
+
+  function applyFlatStackColorState(stack, requestedColor) {
+    if (!stack) return;
+    const fillData = stack.userData?.stackFill;
+    if (!fillData) return;
+
+    const baseColors = stack.userData?.stackFillBaseColors || {
+      filled: stackFillConfig.filledColor,
+      empty: stackFillConfig.emptyColor
+    };
+    stack.userData.stackFillBaseColors = baseColors;
+
+    const isBaseState = requestedColor === lineColors.stack || requestedColor === lineColors.ownerJF;
+    if (isBaseState) {
+      fillData.filledMesh.material.color.set(baseColors.filled);
+      fillData.emptyMesh.material.color.set(baseColors.empty);
+      fillData.filledMesh.material.opacity = stackFillConfig.filledOpacity;
+      fillData.emptyMesh.material.opacity = stackFillConfig.emptyOpacity;
+      fillData.filledMesh.material.transparent = stackFillConfig.filledOpacity < 1;
+      fillData.emptyMesh.material.transparent = stackFillConfig.emptyOpacity < 1;
+    } else {
+      fillData.filledMesh.material.color.set(requestedColor);
+      fillData.emptyMesh.material.color.set(requestedColor);
+      fillData.filledMesh.material.opacity = 0.9;
+      fillData.emptyMesh.material.opacity = 0.9;
+      fillData.filledMesh.material.transparent = true;
+      fillData.emptyMesh.material.transparent = true;
+    }
+  }
+
 
 function getSiloHoverColor(obj) {
     const type = obj?.userData?.type;
