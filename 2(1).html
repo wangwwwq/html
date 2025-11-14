@@ -658,8 +658,8 @@
 
   // 真实API接口配置
   const API_CONFIG = {
-    BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务
-      // BASE_URL: 'https://open.circlelog.com', // 远程API服务
+    // BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务
+      BASE_URL: 'https://open.circlelog.com', // 远程API服务
     PATH_PREFIX: '/iot-service',
     ENDPOINTS: {
       ALL_SILOS: '/api/order-driver/siloStarWarehouseData',
@@ -1729,6 +1729,8 @@
       尺寸_m: `${sx}×${sy}×${sz}`,
       最大容量_t: siloInfo.maxCapacity,
       当前储量_t: siloInfo.currentStorage,
+      仓内温度_c: siloInfo.temperature,
+      仓内湿度_percent: siloInfo.humidity,
       物料详情: hasMaterialData ? activeMaterials : [],
       hasMaterialData: hasMaterialData,
       stackSize: {length: sx, width: sz, height: sy},
@@ -2284,6 +2286,8 @@ function getSiloSelectedColor(obj) {
         <div style="font-weight:600;margin-bottom:6px;">平仓P01详情 #${ud.编号 || ud.id}</div>
         <div>最大容量: 2600 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
+        <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
+        <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
         ${materialsHtml}
       `;
     }
