@@ -483,6 +483,7 @@
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
+  controls.zoomSpeed = 0.40;
   const polarAngle = Math.PI / 4;
   controls.minPolarAngle = polarAngle;
   controls.maxPolarAngle = polarAngle;
@@ -541,6 +542,14 @@
 
   const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
   const noNumberSiloColor = 0xFF6B6B; // 红色，表示没有分配编号的筒仓
+  const stackFillConfig = {
+    filledColor: 0x22c55e,
+    emptyColor: 0x9ca3af,
+    innerScale: 0.95,
+    filledOpacity: 0.8,
+    emptyOpacity: 0.4
+  };
+
 
   
   // 公司颜色映射（已弃用，现在使用API返回的companyColor字段）
@@ -649,8 +658,8 @@
 
   // 真实API接口配置
   const API_CONFIG = {
-    // BASE_URL: 'http://127.0.0.1:8062', // 正式本地API服务
-      BASE_URL: 'https://open.circlelog.com', // 远程API服务
+    BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务
+      // BASE_URL: 'https://open.circlelog.com', // 远程API服务
     PATH_PREFIX: '/iot-service',
     ENDPOINTS: {
       ALL_SILOS: '/api/order-driver/siloStarWarehouseData',
@@ -1667,9 +1676,10 @@
     const cx = center.x, cz = center.z;
 
     // 只生成一个平仓P01在仓库中心
-    const stack = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
+    const stack = new THREE.Group();
     stack.position.set(cx, sy / 2, cz);
-    stack.material = new THREE.LineBasicMaterial({color: lineColors.stack});
+    const stackWireframe = createWireframe(new THREE.BoxGeometry(sx, sy, sz), lineColors.stack);
+    stack.add(stackWireframe);
     const vol = (sx * sy * sz).toFixed(0);
     const id = stackIdSeq++;
     const whInfo = warehouseGroup.userData?.whInfo || null;
@@ -1721,6 +1731,7 @@
       当前储量_t: siloInfo.currentStorage,
       物料详情: hasMaterialData ? activeMaterials : [],
       hasMaterialData: hasMaterialData,
+      stackSize: {length: sx, width: sz, height: sy},
       // 添加接口数据来源标识
       数据来源: apiData.dataSource,
       更新时间: apiData.timestamp,
@@ -1729,7 +1740,9 @@
 
     // 根据是否有物料数据设置颜色
     const baseColor = hasMaterialData && siloInfo.owner === 'JF' ? lineColors.ownerJF : lineColors.stack;
+    ensureFlatStackFillMeshes(stack);
     setStackColor(stack, baseColor);
+    updateStackFillVisual(stack);
 
     scene.add(stack);
     registerPickable(stack);
@@ -1897,6 +1910,110 @@ function hasActiveMaterials(materialDetails) {
 }
 
 
+function ensureFlatStackFillMeshes(stack) {
+  if (!stack) return null;
+  const stackSize = stack.userData?.stackSize;
+  if (!stackSize) return null;
+  if (stack.userData?.stackFill) {
+    return stack.userData.stackFill;
+  }
+  const shrinkRatio = Math.min(Math.max(stackFillConfig.innerScale || 1, 0.3), 1);
+  const innerLength = stackSize.length * shrinkRatio;
+  const innerWidth = stackSize.width * shrinkRatio;
+  const innerHeight = stackSize.height;
+  const filledGeometry = new THREE.BoxGeometry(innerLength, innerHeight, innerWidth);
+  const emptyGeometry = new THREE.BoxGeometry(innerLength, innerHeight, innerWidth);
+  const filledMaterial = new THREE.MeshStandardMaterial({
+    color: stackFillConfig.filledColor,
+    transparent: stackFillConfig.filledOpacity < 1,
+    opacity: stackFillConfig.filledOpacity,
+    roughness: 0.5,
+    metalness: 0.2
+  });
+  const emptyMaterial = new THREE.MeshStandardMaterial({
+    color: stackFillConfig.emptyColor,
+    transparent: stackFillConfig.emptyOpacity < 1,
+    opacity: stackFillConfig.emptyOpacity,
+    roughness: 0.65,
+    metalness: 0.1
+  });
+  const filledMesh = new THREE.Mesh(filledGeometry, filledMaterial);
+  const emptyMesh = new THREE.Mesh(emptyGeometry, emptyMaterial);
+  filledMesh.castShadow = false;
+  filledMesh.receiveShadow = false;
+  emptyMesh.castShadow = false;
+  emptyMesh.receiveShadow = false;
+  stack.add(emptyMesh);
+  stack.add(filledMesh);
+  const fillData = {filledMesh, emptyMesh};
+  stack.userData.stackFill = fillData;
+  stack.userData.stackFillBaseColors = {
+    filled: stackFillConfig.filledColor,
+    empty: stackFillConfig.emptyColor
+  };
+  return fillData;
+}
+
+function updateStackFillVisual(stack) {
+  if (!stack) return;
+  const stackSize = stack.userData?.stackSize;
+  if (!stackSize) return;
+  const fillData = stack.userData?.stackFill || ensureFlatStackFillMeshes(stack);
+  if (!fillData) return;
+  const capacity = toNumber(stack.userData?.最大容量_t);
+  const current = toNumber(stack.userData?.当前储量_t);
+  const safeCapacity = Number.isFinite(capacity) && capacity > 0 ? capacity : 0;
+  const safeCurrent = Number.isFinite(current) ? Math.max(current, 0) : 0;
+  const ratio = safeCapacity > 0 ? Math.min(Math.max(safeCurrent / safeCapacity, 0), 1) : 0;
+  const emptyRatio = 1 - ratio;
+  stack.userData.fillRatio = ratio;
+  const {filledMesh, emptyMesh} = fillData;
+  const length = stackSize.length;
+  if (filledMesh) {
+    if (ratio > 0) {
+      filledMesh.visible = true;
+      filledMesh.scale.set(ratio, 1, 1);
+      filledMesh.position.set(-length / 2 + (length * ratio) / 2, 0, 0);
+    } else {
+      filledMesh.visible = false;
+    }
+  }
+  if (emptyMesh) {
+    if (emptyRatio > 0) {
+      emptyMesh.visible = true;
+      emptyMesh.scale.set(emptyRatio, 1, 1);
+      emptyMesh.position.set(length / 2 - (length * emptyRatio) / 2, 0, 0);
+    } else {
+      emptyMesh.visible = false;
+    }
+  }
+}
+
+function applyFlatStackColorState(stack, requestedColor) {
+  if (!stack?.userData?.stackFill) return;
+  const fillData = stack.userData.stackFill;
+  const baseColors = stack.userData.stackFillBaseColors || {
+    filled: stackFillConfig.filledColor,
+    empty: stackFillConfig.emptyColor
+  };
+  const isBaseState = requestedColor === lineColors.stack || requestedColor === lineColors.ownerJF;
+  if (isBaseState) {
+    fillData.filledMesh.material.color.set(baseColors.filled);
+    fillData.emptyMesh.material.color.set(baseColors.empty);
+    fillData.filledMesh.material.opacity = stackFillConfig.filledOpacity;
+    fillData.emptyMesh.material.opacity = stackFillConfig.emptyOpacity;
+    fillData.filledMesh.material.transparent = stackFillConfig.filledOpacity < 1;
+    fillData.emptyMesh.material.transparent = stackFillConfig.emptyOpacity < 1;
+  } else {
+    fillData.filledMesh.material.color.set(requestedColor);
+    fillData.emptyMesh.material.color.set(requestedColor);
+    fillData.filledMesh.material.opacity = 0.9;
+    fillData.emptyMesh.material.opacity = 0.9;
+    fillData.filledMesh.material.transparent = true;
+    fillData.emptyMesh.material.transparent = true;
+  }
+}
+
 function setStackColor(obj, color) {
     if (!obj) return;
 
@@ -1941,6 +2058,8 @@ function setStackColor(obj, color) {
           }
         }
       });
+    } else if (obj.userData?.stackFill) {
+      applyFlatStackColorState(obj, targetColor);
     } else if (obj.material) {
       // 为平仓P01设置颜色
       obj.material.color.set(targetColor);
