@@ -664,7 +664,7 @@
 
     // 真实API接口配置
     const API_CONFIG = {
-        // BASE_URL: 'http://127.0.0.1:8062', // 正式本地API服务`
+        // BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
         BASE_URL: 'https://open.circlelog.com', // 远程API服务
         PATH_PREFIX: '/iot-service',
         ENDPOINTS: {
@@ -1970,6 +1970,8 @@
                 尺寸_m: '无数据',
                 最大容量_t: '无数据',
                 当前储量_t: siloInfo.currentStorage,
+                仓内温度_c: siloInfo.temperature ?? '无数据',
+                仓内湿度_percent: siloInfo.humidity ?? '无数据',
                 物料详情: hasMaterialData ? activeMaterials : [],
                 hasMaterialData: hasMaterialData,
                 // 添加接口数据来源标识
@@ -2692,6 +2694,8 @@
             const siloInfo = ud.siloInfo || {};
             const materials = ud.materialDetails || [];
             const current = siloInfo.currentStorage || '0';
+            const temperatureText = siloInfo.temperature ?? '-';
+            const humidityText = siloInfo.humidity ?? '-';
 
             let materialsHtml = '';
             if (materials.length > 0) {
@@ -2733,6 +2737,8 @@
         <div style="font-weight:600;margin-bottom:6px;">🏗️ 露天堆详情</div>
         <div>名称: ${ud.名称 || '未命名'}</div>
         <div>当前储量: ${current} 吨</div>
+        <div>仓内温度: ${temperatureText} ℃</div>
+        <div>仓内湿度: ${humidityText}%</div>
         ${materialsHtml}
         ${dataSourceHtml}
       `;
@@ -2772,6 +2778,8 @@
         <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
+        <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
+        <div>仓内湿度: ${ud.仓内湿度_percent || '-'}%</div>
         ${materialsHtml}
       `;
         }
