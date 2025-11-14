@@ -570,6 +570,13 @@
 
     const emptySiloColor = 0xD8D8D0; // Neutral fill for silos without material data
     const noNumberSiloColor = 0xFF6B6B; // 红色，表示没有分配编号的筒仓
+    const stackFillConfig = {
+        filledColor: 0x22c55e,  // 绿色表示已存储的货物
+        emptyColor: 0x9ca3af,   // 灰色表示空余容量
+        innerScale: 0.95,       // 稍微缩小内部填充，更好地显示边界
+        filledOpacity: 0.8,     // 适当透明度，便于观察
+        emptyOpacity: 0.4       // 空余部分更透明
+    };
 
     // 颜色转换工具函数
     function getColorCSS(hexColor) {
@@ -1884,6 +1891,11 @@
             const vol = (sx * sy * sz).toFixed(0);
             const id = stackIdSeq++;
 
+            // 创建堆垛填充组
+            const stackGroup = new THREE.Group();
+            stackGroup.add(stack);
+            stackGroup.position.set(position.x, 0, position.z);
+
             // 为堆垛添加不可见的碰撞体网格，提高点击检测成功率
             const collisionGeometry = new THREE.BoxGeometry(sx, sy, sz);
             const collisionMaterial = new THREE.MeshBasicMaterial({
@@ -1933,7 +1945,19 @@
                 : [];
             const hasMaterialData = activeMaterials.length > 0;
 
+            // 创建堆垛填充网格
+            const maxCapacity = toNumber(siloInfo.maxCapacity) || (vol * 0.75); // 使用API数据或默认密度
+            const fillMesh = buildStackFillMesh(
+                { length: sx, width: sz, height: sy },
+                activeMaterials,
+                maxCapacity
+            );
+            stackGroup.add(fillMesh);
+
             const finalType = siloInfo.type || `平仓${stackNumber}`;
+
+            // 调整stack位置，因为现在它在stackGroup中
+            stack.position.set(0, sy / 2, 0);
 
             stack.userData = {
                 type: '平仓', // 设置为平仓类型，以便正确处理选中颜色
@@ -1950,18 +1974,18 @@
                 hasMaterialData: hasMaterialData,
                 // 添加接口数据来源标识
                 数据来源: apiData.dataSource,
-                更新时间: apiData.timestamp,
-                whInfo
+                更新时间: apiData.timestamp
             };
 
             // 根据是否有物料数据设置颜色：有数据显示绿色，无数据显示灰色
             const baseColor = hasMaterialData ? lineColors.ownerJF : lineColors.stack;
             setStackColor(stack, baseColor);
 
-            // 将userData同时复制到碰撞体网格上
+            // 将userData同时复制到碰撞体网格和stackGroup上
             collisionMesh.userData = stack.userData;
+            stackGroup.userData = stack.userData;
 
-            scene.add(stack);
+            scene.add(stackGroup);
             scene.add(collisionMesh); // 将碰撞体添加到场景中
             registerPickable(stack);
             registerPickable(collisionMesh); // 注册碰撞体用于射线检测
@@ -2219,6 +2243,124 @@
     function hasActiveMaterials(materialDetails) {
         if (!Array.isArray(materialDetails)) return false;
         return materialDetails.some(item => Number.isFinite(toNumber(item?.amount)) && Math.abs(toNumber(item.amount)) > 1e-6);
+    }
+
+    // 创建堆垛填充网格
+    function buildStackFillMesh(stackSize, materialDetails, maxCapacity) {
+        const { length: sx, width: sz, height: sy } = stackSize;
+        const group = new THREE.Group();
+        
+        if (!materialDetails || materialDetails.length === 0 || !maxCapacity || maxCapacity <= 0) {
+            // 空堆垛，创建空的填充网格
+            const emptyGeo = new THREE.BoxGeometry(
+                sx * stackFillConfig.innerScale, 
+                sy * stackFillConfig.innerScale, 
+                sz * stackFillConfig.innerScale
+            );
+            const emptyMat = new THREE.MeshStandardMaterial({
+                color: stackFillConfig.emptyColor,
+                transparent: true,
+                opacity: stackFillConfig.emptyOpacity,
+                roughness: 0.9,
+                metalness: 0.05
+            });
+            const emptyMesh = new THREE.Mesh(emptyGeo, emptyMat);
+            emptyMesh.position.y = sy / 2;
+            group.add(emptyMesh);
+            return group;
+        }
+
+        // 计算正数物料总量
+        const positiveMaterials = materialDetails.filter(m => {
+            const amount = toNumber(m?.amount);
+            return Number.isFinite(amount) && amount > 0;
+        });
+
+        if (positiveMaterials.length === 0) {
+            // 没有正数物料，显示空堆垛
+            const emptyGeo = new THREE.BoxGeometry(
+                sx * stackFillConfig.innerScale, 
+                sy * stackFillConfig.innerScale, 
+                sz * stackFillConfig.innerScale
+            );
+            const emptyMat = new THREE.MeshStandardMaterial({
+                color: stackFillConfig.emptyColor,
+                transparent: true,
+                opacity: stackFillConfig.emptyOpacity,
+                roughness: 0.9,
+                metalness: 0.05
+            });
+            const emptyMesh = new THREE.Mesh(emptyGeo, emptyMat);
+            emptyMesh.position.y = sy / 2;
+            group.add(emptyMesh);
+            return group;
+        }
+
+        const totalAmount = positiveMaterials.reduce((sum, m) => sum + toNumber(m.amount), 0);
+        const fillRatio = Math.min(totalAmount / maxCapacity, 1.0); // 限制在100%以内
+        let currentY = 0;
+
+        // 为每个公司的正数物料创建分段
+        positiveMaterials.forEach((material, index) => {
+            const proportion = toNumber(material.amount) / totalAmount;
+            const segmentHeight = sy * fillRatio * proportion;
+            
+            if (segmentHeight > 0.01) { // 只显示足够高的分段
+                const geo = new THREE.BoxGeometry(
+                    sx * stackFillConfig.innerScale, 
+                    segmentHeight, 
+                    sz * stackFillConfig.innerScale
+                );
+                
+                // 解析公司颜色
+                const colorData = parseColor(material.companyColor);
+                const companyColor = colorData.hex || stackFillConfig.filledColor;
+                
+                const mat = new THREE.MeshStandardMaterial({
+                    color: companyColor,
+                    transparent: true,
+                    opacity: stackFillConfig.filledOpacity,
+                    roughness: 0.9,
+                    metalness: 0.05
+                });
+                
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.y = currentY + segmentHeight / 2;
+                mesh.userData = {
+                    company: material.company,
+                    material: material.material,
+                    amount: material.amount
+                };
+                
+                group.add(mesh);
+                currentY += segmentHeight;
+            }
+        });
+
+        // 如果有剩余空间，添加空的顶部分段
+        if (currentY < sy) {
+            const emptyHeight = sy - currentY;
+            const geo = new THREE.BoxGeometry(
+                sx * stackFillConfig.innerScale, 
+                emptyHeight, 
+                sz * stackFillConfig.innerScale
+            );
+            const mat = new THREE.MeshStandardMaterial({
+                color: stackFillConfig.emptyColor,
+                transparent: true,
+                opacity: stackFillConfig.emptyOpacity,
+                roughness: 0.95,
+                metalness: 0.02
+            });
+            
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.y = currentY + emptyHeight / 2;
+            mesh.userData = { isEmpty: true };
+            
+            group.add(mesh);
+        }
+
+        return group;
     }
 
 
