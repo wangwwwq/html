@@ -4281,7 +4281,7 @@ function getSiloSelectedColor(obj) {
     const yardSouthExtent = yardSouthConfig ?? yardW / 2;
     const yardWidth = yardNorthExtent + yardSouthExtent;
     buildYardGrid(yardL, yardWidth, {northExtent: yardNorthExtent, southExtent: yardSouthExtent});
-    const roadZOffset = 40; // 道路向北移动40米（正值向北）
+    const roadZOffset = 90; // 道路向北移动40米（正值向北）
     buildMainRoad(roadWidth, yardL, roadZOffset);
     buildSidewalkTrees(roadWidth, yardL, 10, roadZOffset);
 
@@ -4289,8 +4289,8 @@ function getSiloSelectedColor(obj) {
     const sideRoadMargin = 30;
     const eastRoadXOffset = yardL / 2 - (roadWidth / 2) - sideRoadMargin + 20; // 向东移动10米
     const westRoadXOffset = -eastRoadXOffset;
-    const eastRoadZOffset = roadZOffset - 90; // 东侧道路向南移动90米
-    const westRoadZOffset = roadZOffset - 90; // 西侧道路向南移动90米
+    const eastRoadZOffset = roadZOffset - 130; // 东侧道路向南移动120米
+    const westRoadZOffset = roadZOffset - 130; // 西侧道路向南移动120米
     buildVerticalRoad(roadWidth, verticalRoadLength, eastRoadXOffset, eastRoadZOffset);
     buildVerticalRoad(roadWidth, verticalRoadLength, westRoadXOffset, westRoadZOffset);
     buildSidewalkTreesVertical(roadWidth, verticalRoadLength, 10, eastRoadXOffset, eastRoadZOffset);
@@ -4305,8 +4305,8 @@ function getSiloSelectedColor(obj) {
       beamHeight: 1.2,
       beamDepth: 1.2
     });
-    entranceGate1.position.set(-yardL / 2 + 50, 0, roadZOffset - 105); // 在道路西侧入口，向南移动20米
-    entranceGate1.scale.set(1.5, 2.5, 1.5); // 宽1.5倍，高2.5倍，深1.5倍
+    entranceGate1.position.set(-yardL / 2 + 50, 0, roadZOffset - 105); // 在道路西侧入口，向南移动50米
+    entranceGate1.scale.set(1.5, 1.5, 1.5); // 宽1.5倍，高2.5倍，深1.5倍
     scene.add(entranceGate1);
 
     // 创建园区入口大门 - 东侧入口
@@ -4319,8 +4319,8 @@ function getSiloSelectedColor(obj) {
       beamDepth: 1.2,
       accentColor: 0x2d9463 // 绿色标识面板
     });
-    entranceGate2.position.set(yardL / 2 - 50, 0, roadZOffset - 105); // 在道路东侧入口，整体向西移动30米
-    entranceGate2.scale.set(1.5, 2.5, 1.5);
+    entranceGate2.position.set(yardL / 2 - 50, 0, roadZOffset - 105); // 在道路东侧入口，整体向西移动30米，向南移动30米
+    entranceGate2.scale.set(1.5, 1.5, 1.5);
     scene.add(entranceGate2);
 
     // 创建园区入口大门 - 南侧入口
@@ -4333,9 +4333,9 @@ function getSiloSelectedColor(obj) {
       beamDepth: 1.0,
       accentColor: 0xc97a3d // 橙色标识面板
     });
-    entranceGate3.position.set(5, 0, -yardSouthExtent +215); // 在场地南侧入口，向右移动5米并向北移动10米
+    entranceGate3.position.set(5, 0, -yardSouthExtent +265); // 在场地南侧入口，向右移动5米并向南移动40米
     entranceGate3.rotation.y = Math.PI / 2; // 旋转90度面向北
-    entranceGate3.scale.set(1.3, 2.2, 1.3);
+    entranceGate3.scale.set(1.3, 1.5, 1.3);
     scene.add(entranceGate3);
 
     const {length: wL, width: wW, height: wH, roofHeight: rH, gap} = cfg.warehouse;
@@ -4344,7 +4344,7 @@ function getSiloSelectedColor(obj) {
     const totalRowSpan = cols * wL + (cols - 1) * gap;
     const leftStart = -totalRowSpan / 2 + wL / 2 + 120; // 将仓库#A向东移动（增加X坐标）
 
-    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5) + 40; // 向北移动20米（增加Z坐标）
+    const zRowOffset = -(roadWidth / 2 + wW / 2 + 5) + 90; // 向北移动20米（增加Z坐标）
     const rowZs = [zRowOffset];
 
     // 创建#A仓库（主仓库）- 保持原始位置不变
@@ -4478,14 +4478,14 @@ function getSiloSelectedColor(obj) {
         rowGroupCounts: [1, 1, 1, 1, 1], // 筒仓 - Z方向5排，每排5个筒仓（在X方向）
         roadSouthMargin: 15, // 减少南侧边距，更好地利用空间
         xOffset: -80, // X方向偏移量（正值向东，负值向西）- 向西移动更多以容纳新增筒仓
-        zOffset: -70  // Z方向偏移量（正值向北，负值向南）
+        zOffset: -20  // Z方向偏移量（正值向北，负值向南）- 向北移动50米
       });
 
 
       // 添加地磅 - 立即渲染，不等待任何条件
       
       // 立即创建地磅，不使用await等待，确保立即渲染
-      placeWeighbridge(110, -75, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
+      placeWeighbridge(110, -25, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南) - 向北移动50米
         length: 20, 
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
@@ -4493,7 +4493,7 @@ function getSiloSelectedColor(obj) {
       }).catch(error => {
       });
       
-      placeWeighbridge(10, 5, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
+      placeWeighbridge(10, 55, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南) - 向北移动50米
         length: 20, 
         width: 10, 
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
@@ -4501,7 +4501,7 @@ function getSiloSelectedColor(obj) {
       }).catch(error => {
       });
       
-      placeWeighbridge(-105, -75, '3号磅', {       // 3号磅在110米(往东)，-25米处(往南)
+      placeWeighbridge(-105, -25, '3号磅', {       // 3号磅在110米(往东)，-25米处(往南) - 向北移动50米
         length: 20, 
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
@@ -4509,7 +4509,7 @@ function getSiloSelectedColor(obj) {
       }).catch(error => {
       });
       
-      placeWeighbridge(-105, -55, '4号磅', {       // 4号磅在110米(往东)，25米处(往北)
+      placeWeighbridge(-105, -5, '4号磅', {       // 4号磅在110米(往东)，25米处(往北) - 向北移动50米
         length: 20, 
         width: 10, 
         rotation: 0 // 0度旋转，使车辆沿东西方向行驶
@@ -4523,7 +4523,7 @@ function getSiloSelectedColor(obj) {
       // 星仓偏移量配置
       const starSiloConfig = {
         xOffset: -80, // X方向偏移量（正值向东，负值向西）
-        zOffset: -70  // Z方向偏移量（正值向北，负值向南）
+        zOffset: -20  // Z方向偏移量（正值向北，负值向南）- 向北移动50米
       };
 
       // 并行创建所有星仓（共18个）
