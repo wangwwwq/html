@@ -553,9 +553,9 @@
     siloOwnerJF: 0x33bb33,
     siloHover: 0x2eb8ff,
     siloSelected: 0xff4444,
-    weighbridge: 0x4A4A4A,
-    weighbridgeHover: 0x5A5A5A,
-    weighbridgeSelected: 0x6A6A6A,
+    weighbridge: 0xe7e7e7,
+    weighbridgeHover: 0xf0f0f0,
+    weighbridgeSelected: 0xfafafa,
     // 星仓颜色配置
     starSilo: 0xffc75f,           // 星仓基础颜色（金黄色）
     starSiloOwnerJF: 0xffb347,    // 建发集团星仓颜色（橙黄色）
@@ -3142,7 +3142,7 @@ function getSiloSelectedColor(obj) {
     // 地磅平台
     const platformGeo = new THREE.BoxGeometry(length, height, width);
     const platformMat = new THREE.MeshStandardMaterial({
-      color: 0x4A4A4A,
+      color: 0xe7e7e7,
       roughness: 0.8,
       metalness: 0.2
     });
@@ -3153,7 +3153,7 @@ function getSiloSelectedColor(obj) {
     group.add(platform);
     
     // 地磅边框线框
-    const platformWireframe = createWireframe(platformGeo, 0x333333);
+    const platformWireframe = createWireframe(platformGeo, lineColors.weighbridge);
     platformWireframe.position.y = height / 2;
     group.add(platformWireframe);
     
