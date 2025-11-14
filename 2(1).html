@@ -426,12 +426,12 @@
   async function fetchYardConfig() {
     return {
       yard: {
-        length: 300,
+        length: 380,
         width: 310,
         roadWidth: 20,
         northExtent: 90,
         southExtent: 190
-      }, // 将length从350减少到300，缩小西方向50米，同时压缩道路北侧空地
+      }, // 将length从350调整到420，东西方向进一步加长以拓展主干道
       warehouse: {
         count: 1,
         length: 40,
@@ -1529,6 +1529,38 @@
     scene.add(centerLine);
   }
 
+  function buildVerticalRoad(roadWidth, length, xOffset = 0, zOffset = 0) {
+    const halfL = length / 2;
+    const halfW = roadWidth / 2;
+    const sidewalk = 3;
+    const laneEdge = halfW - sidewalk;
+
+    const y = 0.02;
+    const mkLine = (pts, material) => {
+      const g = new THREE.BufferGeometry().setFromPoints(
+        pts.map(p => new THREE.Vector3(p[0] + xOffset, y, p[1] + zOffset))
+      );
+      const line = new THREE.Line(g, material);
+      return line;
+    };
+
+    const baseMat = new THREE.LineBasicMaterial({color: 0x444444});
+    const dashedMat = new THREE.LineDashedMaterial({color: 0x888888, dashSize: 10, gapSize: 6});
+
+    scene.add(mkLine([[-halfW, -halfL], [-halfW, halfL]], baseMat.clone()));
+    scene.add(mkLine([[halfW, -halfL], [halfW, halfL]], baseMat.clone()));
+    scene.add(mkLine([[-laneEdge, -halfL], [-laneEdge, halfL]], baseMat.clone()));
+    scene.add(mkLine([[laneEdge, -halfL], [laneEdge, halfL]], baseMat.clone()));
+
+    const gCenter = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(xOffset, y, -halfL + zOffset),
+      new THREE.Vector3(xOffset, y, halfL + zOffset)
+    ]);
+    const centerLine = new THREE.Line(gCenter, dashedMat);
+    centerLine.computeLineDistances();
+    scene.add(centerLine);
+  }
+
   function buildSidewalkTrees(roadWidth, length, spacing = 10, zOffset = 0) {
     const halfL = length / 2;
     const halfW = roadWidth / 2;
@@ -1538,6 +1570,40 @@
     for (let x = -halfL; x <= halfL + 1e-6; x += spacing) {
       addTree(x, zOnSidewalk + zOffset);
       addTree(x, -zOnSidewalk + zOffset);
+    }
+
+    function addTree(x, z) {
+      const group = new THREE.Group();
+      const trunkH = 6;
+      const canopyH = 2;
+
+      const trunkGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, trunkH, 0)
+      ]);
+      const trunk = new THREE.Line(trunkGeom, new THREE.LineBasicMaterial({color: lineColors.tree}));
+      group.add(trunk);
+
+      const coneGeo = new THREE.ConeGeometry(1.4, canopyH, 10);
+      const edges = new THREE.EdgesGeometry(coneGeo);
+      const canopy = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color: lineColors.tree}));
+      canopy.position.y = trunkH + canopyH / 2;
+      group.add(canopy);
+
+      group.position.set(x, 0, z);
+      scene.add(group);
+    }
+  }
+
+  function buildSidewalkTreesVertical(roadWidth, length, spacing = 10, xOffset = 0, zOffset = 0) {
+    const halfL = length / 2;
+    const halfW = roadWidth / 2;
+    const sidewalk = 3;
+    const xOnSidewalk = halfW - sidewalk / 2;
+
+    for (let z = -halfL; z <= halfL + 1e-6; z += spacing) {
+      addTree(xOffset + xOnSidewalk, z + zOffset);
+      addTree(xOffset - xOnSidewalk, z + zOffset);
     }
 
     function addTree(x, z) {
@@ -4036,6 +4102,17 @@ function getSiloSelectedColor(obj) {
     buildMainRoad(roadWidth, yardL, roadZOffset);
     buildSidewalkTrees(roadWidth, yardL, 10, roadZOffset);
 
+    const verticalRoadLength = yardWidth;
+    const sideRoadMargin = 30;
+    const eastRoadXOffset = yardL / 2 - (roadWidth / 2) - sideRoadMargin + 20; // 向东移动10米
+    const westRoadXOffset = -eastRoadXOffset;
+    const eastRoadZOffset = roadZOffset - 90; // 东侧道路向南移动90米
+    const westRoadZOffset = roadZOffset - 90; // 西侧道路向南移动90米
+    buildVerticalRoad(roadWidth, verticalRoadLength, eastRoadXOffset, eastRoadZOffset);
+    buildVerticalRoad(roadWidth, verticalRoadLength, westRoadXOffset, westRoadZOffset);
+    buildSidewalkTreesVertical(roadWidth, verticalRoadLength, 10, eastRoadXOffset, eastRoadZOffset);
+    buildSidewalkTreesVertical(roadWidth, verticalRoadLength, 10, westRoadXOffset, westRoadZOffset);
+
     // 创建园区入口大门 - 西侧主入口
     const entranceGate1 = buildEntranceGate({
       span: Math.max(roadWidth - 2, 12),
@@ -4045,7 +4122,7 @@ function getSiloSelectedColor(obj) {
       beamHeight: 1.2,
       beamDepth: 1.2
     });
-    entranceGate1.position.set(-yardL / 2 + 10, 0, roadZOffset - 105); // 在道路西侧入口，向南移动20米
+    entranceGate1.position.set(-yardL / 2 + 50, 0, roadZOffset - 105); // 在道路西侧入口，向南移动20米
     entranceGate1.scale.set(1.5, 2.5, 1.5); // 宽1.5倍，高2.5倍，深1.5倍
     scene.add(entranceGate1);
 
@@ -4059,7 +4136,7 @@ function getSiloSelectedColor(obj) {
       beamDepth: 1.2,
       accentColor: 0x2d9463 // 绿色标识面板
     });
-    entranceGate2.position.set(yardL / 2 - 10, 0, roadZOffset - 105); // 在道路东侧入口
+    entranceGate2.position.set(yardL / 2 - 50, 0, roadZOffset - 105); // 在道路东侧入口，整体向西移动30米
     entranceGate2.scale.set(1.5, 2.5, 1.5);
     scene.add(entranceGate2);
 
