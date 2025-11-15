@@ -441,6 +441,13 @@
         };
     }
 
+    // 仓库容量配置（单位：吨）
+    const WAREHOUSE_CAPACITY_CONFIG = {
+        '1号库': 15814,  // 1号库容量
+        '2号库': 15814,  // 2号库容量
+        '3号库': 44055   // 3号库容量
+    };
+
     async function fetchWarehouseStackConfig(warehouseIndex) {
         // P01(101), P02(102), P03(103) 平仓保持原来的18米宽度
         // 其他仓库（#A仓库和单个堆垛的平仓）使用30米宽度
@@ -676,8 +683,8 @@
 
     // 真实API接口配置
     const API_CONFIG = {
-        // BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
-        BASE_URL: 'https://open.circlelog.com', // 远程API服务
+        BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
+        // BASE_URL: 'https://open.circlelog.com', // 远程API服务
         PATH_PREFIX: '/iot-service',
         ENDPOINTS: {
             ALL_SILOS: '/api/order-driver/obtainTheSiloJinZhou',
@@ -1903,6 +1910,10 @@
             const vol = (sx * sy * sz).toFixed(0);
             const id = stackIdSeq++;
 
+            // 查找配置的容量，如果未找到则使用默认计算值
+            const configuredCapacity = WAREHOUSE_CAPACITY_CONFIG[stackNumber];
+            const capacityToUse = configuredCapacity !== undefined ? configuredCapacity : (vol * 0.75).toFixed(1);
+
             // 创建堆垛填充组
             const stackGroup = new THREE.Group();
             stackGroup.add(stack);
@@ -1934,7 +1945,7 @@
                     radius: Math.max(sx, sz) / 2,
                     height: sy,
                     volume: vol,
-                    capacity: (vol * 0.75).toFixed(1) // 假设密度0.75吨/立方米
+                    capacity: capacityToUse
                 });
 
             } catch (error) {
@@ -1958,7 +1969,8 @@
             const hasMaterialData = activeMaterials.length > 0;
 
             // 创建堆垛填充网格
-            const maxCapacity = toNumber(siloInfo.maxCapacity) || (vol * 0.75); // 使用API数据或默认密度
+            // 优先使用配置的容量，其次使用API数据，最后使用默认密度计算
+            const maxCapacity = configuredCapacity !== undefined ? configuredCapacity : (toNumber(siloInfo.maxCapacity) || (vol * 0.75));
             const fillMesh = buildStackFillMesh(
                 { length: sx, width: sz, height: sy },
                 activeMaterials,
@@ -1978,9 +1990,8 @@
                 编号: stackNumber, // 强制使用本地配置的堆垛名称
                 owner: hasMaterialData ? siloInfo.owner : undefined,
                 仓库序号: index + 1,
-                体积_m3: '无数据',
-                尺寸_m: '无数据',
-                最大容量_t: '无数据',
+                尺寸_m: `${sx}×${sz}×${sy}`,
+                最大容量_t: maxCapacity,  // 使用配置的容量或计算值
                 当前储量_t: siloInfo.currentStorage,
                 仓内温度_c: siloInfo.temperature ?? '无数据',
                 仓内湿度_percent: siloInfo.humidity ?? '无数据',
@@ -2204,7 +2215,6 @@
       `;
         } else {
             // 平仓悬停信息
-            const v = obj.userData?.体积_m3;
             const cap = obj.userData?.最大容量_t || '-';
             const current = obj.userData?.当前储量_t || '0';
             const materials = obj.userData?.物料详情 || [];
@@ -2230,7 +2240,6 @@
 
             infoPanel.innerHTML = `
         <div><b>平仓 ${obj.userData?.编号 || '#' + obj.userData?.id}</b></div>
-        <div>体积: ${v} m³</div>
         <div>容量: ${cap} 吨</div>
         <div>当前: ${current} 吨</div>
         ${materialInfo}
