@@ -664,8 +664,8 @@
 
     // 真实API接口配置
     const API_CONFIG = {
-        // BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
-        BASE_URL: 'https://open.circlelog.com', // 远程API服务
+        BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
+        // BASE_URL: 'https://open.circlelog.com', // 远程API服务
         PATH_PREFIX: '/iot-service',
         ENDPOINTS: {
             ALL_SILOS: '/api/order-driver/obtainTheSiloJinZhou',
@@ -2774,8 +2774,6 @@
             detailPanel.innerHTML = `
         <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #000000;">锦州锦港库</div>
         <div style="font-weight:600;margin-bottom:6px;">平仓详情 #${ud.编号 || ud.id}</div>
-        <div>最大堆叠体积: ${ud.体积_m3} m³</div>
-        <div>最大堆叠尺寸: ${ud.尺寸_m}</div>
         <div>最大容量: ${ud.最大容量_t || '-'} 吨</div>
         <div>当前储量: ${ud.当前储量_t || '-'} 吨</div>
         <div>仓内温度: ${ud.仓内温度_c || '-'} ℃</div>
