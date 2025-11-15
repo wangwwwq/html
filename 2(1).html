@@ -648,14 +648,18 @@
     const testColors = [
       'hsl(162.0, 65%, 55%)',
       '#ff0000',
+      '#7F7B6E',  // 测试用户提供的HEX颜色
       0x00ff00,
       'hsl(240, 100%, 50%)',
       'invalid-color'
     ];
     
+    console.log('=== 颜色解析测试 ===');
     testColors.forEach(color => {
       const result = parseColor(color);
+      console.log(`输入: ${JSON.stringify(color)} => 输出: hex=0x${result.hex.toString(16).padStart(6, '0')}, css=${result.css}`);
     });
+    console.log('===================');
   }
 
   // 真实API接口配置
