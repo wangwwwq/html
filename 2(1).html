@@ -2090,6 +2090,9 @@
         } else if (userData?.type === '星仓') {
           // 星仓无论是否有数据都可以悬停显示名称
           return current;
+        } else if (userData?.type === '星仓') {
+          // 星仓也应该被认为是可交互对象
+          return current;
         } else if (userData?.type?.startsWith('平仓')) {
           // 所有平仓都可以交互，无论是否有物料数据
           return current;
