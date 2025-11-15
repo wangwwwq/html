@@ -1971,12 +1971,6 @@
             // 创建堆垛填充网格
             // 优先使用配置的容量，其次使用API数据，最后使用默认密度计算
             const maxCapacity = configuredCapacity !== undefined ? configuredCapacity : (toNumber(siloInfo.maxCapacity) || (vol * 0.75));
-            const fillMesh = buildStackFillMesh(
-                { length: sx, width: sz, height: sy },
-                activeMaterials,
-                maxCapacity
-            );
-            stackGroup.add(fillMesh);
 
             const finalType = siloInfo.type || `平仓${stackNumber}`;
 
@@ -1985,6 +1979,7 @@
 
             stack.userData = {
                 type: '平仓', // 设置为平仓类型，以便正确处理选中颜色
+                stackSize: { length: sx, width: sz, height: sy },
                 originalType: finalType, // 保留原始类型信息用于显示
                 id: stackNumber, // 强制使用本地配置的堆垛名称
                 编号: stackNumber, // 强制使用本地配置的堆垛名称
@@ -2003,6 +1998,9 @@
             };
 
             // 根据是否有物料数据设置颜色：有数据显示绿色，无数据显示灰色
+            ensureFlatStackFillMeshes(stack);
+            updateStackFillVisual(stack);
+
             const baseColor = hasMaterialData ? lineColors.ownerJF : lineColors.stack;
             setStackColor(stack, baseColor);
 
@@ -2269,123 +2267,109 @@
     }
 
     // 创建堆垛填充网格
-    function buildStackFillMesh(stackSize, materialDetails, maxCapacity) {
-        const { length: sx, width: sz, height: sy } = stackSize;
-        const group = new THREE.Group();
-        
-        if (!materialDetails || materialDetails.length === 0 || !maxCapacity || maxCapacity <= 0) {
-            // 空堆垛，创建空的填充网格
-            const emptyGeo = new THREE.BoxGeometry(
-                sx * stackFillConfig.innerScale, 
-                sy * stackFillConfig.innerScale, 
-                sz * stackFillConfig.innerScale
-            );
-            const emptyMat = new THREE.MeshStandardMaterial({
-                color: stackFillConfig.emptyColor,
-                transparent: true,
-                opacity: stackFillConfig.emptyOpacity,
-                roughness: 0.9,
-                metalness: 0.05
-            });
-            const emptyMesh = new THREE.Mesh(emptyGeo, emptyMat);
-            emptyMesh.position.y = sy / 2;
-            group.add(emptyMesh);
-            return group;
+    function ensureFlatStackFillMeshes(stack) {
+        if (!stack) return null;
+        const stackSize = stack.userData?.stackSize;
+        if (!stackSize) return null;
+        if (stack.userData?.stackFill) {
+            return stack.userData.stackFill;
         }
-
-        // 计算正数物料总量
-        const positiveMaterials = materialDetails.filter(m => {
-            const amount = toNumber(m?.amount);
-            return Number.isFinite(amount) && amount > 0;
+        const shrinkRatio = Math.min(Math.max(stackFillConfig.innerScale || 1, 0.3), 1);
+        const innerLength = stackSize.length * shrinkRatio;
+        const innerWidth = stackSize.width * shrinkRatio;
+        const innerHeight = stackSize.height;
+        const filledGeometry = new THREE.BoxGeometry(innerLength, innerHeight, innerWidth);
+        const emptyGeometry = new THREE.BoxGeometry(innerLength, innerHeight, innerWidth);
+        const filledMaterial = new THREE.MeshStandardMaterial({
+            color: stackFillConfig.filledColor,
+            transparent: stackFillConfig.filledOpacity < 1,
+            opacity: stackFillConfig.filledOpacity,
+            roughness: 0.5,
+            metalness: 0.2
         });
-
-        if (positiveMaterials.length === 0) {
-            // 没有正数物料，显示空堆垛
-            const emptyGeo = new THREE.BoxGeometry(
-                sx * stackFillConfig.innerScale, 
-                sy * stackFillConfig.innerScale, 
-                sz * stackFillConfig.innerScale
-            );
-            const emptyMat = new THREE.MeshStandardMaterial({
-                color: stackFillConfig.emptyColor,
-                transparent: true,
-                opacity: stackFillConfig.emptyOpacity,
-                roughness: 0.9,
-                metalness: 0.05
-            });
-            const emptyMesh = new THREE.Mesh(emptyGeo, emptyMat);
-            emptyMesh.position.y = sy / 2;
-            group.add(emptyMesh);
-            return group;
-        }
-
-        const totalAmount = positiveMaterials.reduce((sum, m) => sum + toNumber(m.amount), 0);
-        const fillRatio = Math.min(totalAmount / maxCapacity, 1.0); // 限制在100%以内
-        let currentY = 0;
-
-        // 为每个公司的正数物料创建分段
-        positiveMaterials.forEach((material, index) => {
-            const proportion = toNumber(material.amount) / totalAmount;
-            const segmentHeight = sy * fillRatio * proportion;
-            
-            if (segmentHeight > 0.01) { // 只显示足够高的分段
-                const geo = new THREE.BoxGeometry(
-                    sx * stackFillConfig.innerScale, 
-                    segmentHeight, 
-                    sz * stackFillConfig.innerScale
-                );
-                
-                // 解析公司颜色
-                const colorData = parseColor(material.companyColor);
-                const companyColor = colorData.hex || stackFillConfig.filledColor;
-                
-                const mat = new THREE.MeshStandardMaterial({
-                    color: companyColor,
-                    transparent: true,
-                    opacity: stackFillConfig.filledOpacity,
-                    roughness: 0.9,
-                    metalness: 0.05
-                });
-                
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.y = currentY + segmentHeight / 2;
-                mesh.userData = {
-                    company: material.company,
-                    material: material.material,
-                    amount: material.amount
-                };
-                
-                group.add(mesh);
-                currentY += segmentHeight;
-            }
+        const emptyMaterial = new THREE.MeshStandardMaterial({
+            color: stackFillConfig.emptyColor,
+            transparent: stackFillConfig.emptyOpacity < 1,
+            opacity: stackFillConfig.emptyOpacity,
+            roughness: 0.65,
+            metalness: 0.1
         });
-
-        // 如果有剩余空间，添加空的顶部分段
-        if (currentY < sy) {
-            const emptyHeight = sy - currentY;
-            const geo = new THREE.BoxGeometry(
-                sx * stackFillConfig.innerScale, 
-                emptyHeight, 
-                sz * stackFillConfig.innerScale
-            );
-            const mat = new THREE.MeshStandardMaterial({
-                color: stackFillConfig.emptyColor,
-                transparent: true,
-                opacity: stackFillConfig.emptyOpacity,
-                roughness: 0.95,
-                metalness: 0.02
-            });
-            
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.y = currentY + emptyHeight / 2;
-            mesh.userData = { isEmpty: true };
-            
-            group.add(mesh);
-        }
-
-        return group;
+        const filledMesh = new THREE.Mesh(filledGeometry, filledMaterial);
+        const emptyMesh = new THREE.Mesh(emptyGeometry, emptyMaterial);
+        filledMesh.castShadow = false;
+        filledMesh.receiveShadow = false;
+        emptyMesh.castShadow = false;
+        emptyMesh.receiveShadow = false;
+        stack.add(emptyMesh);
+        stack.add(filledMesh);
+        const fillData = { filledMesh, emptyMesh };
+        stack.userData.stackFill = fillData;
+        stack.userData.stackFillBaseColors = {
+            filled: stackFillConfig.filledColor,
+            empty: stackFillConfig.emptyColor
+        };
+        return fillData;
     }
 
+    function updateStackFillVisual(stack) {
+        if (!stack) return;
+        const stackSize = stack.userData?.stackSize;
+        if (!stackSize) return;
+        const fillData = stack.userData?.stackFill || ensureFlatStackFillMeshes(stack);
+        if (!fillData) return;
+        const capacity = toNumber(stack.userData?.最大容量_t);
+        const current = toNumber(stack.userData?.当前储量_t);
+        const safeCapacity = Number.isFinite(capacity) && capacity > 0 ? capacity : 0;
+        const safeCurrent = Number.isFinite(current) ? Math.max(current, 0) : 0;
+        const ratio = safeCapacity > 0 ? Math.min(Math.max(safeCurrent / safeCapacity, 0), 1) : 0;
+        const emptyRatio = 1 - ratio;
+        stack.userData.fillRatio = ratio;
+        const { filledMesh, emptyMesh } = fillData;
+        const length = stackSize.length;
+        if (filledMesh) {
+            if (ratio > 0) {
+                filledMesh.visible = true;
+                filledMesh.scale.set(ratio, 1, 1);
+                filledMesh.position.set(-length / 2 + (length * ratio) / 2, 0, 0);
+            } else {
+                filledMesh.visible = false;
+            }
+        }
+        if (emptyMesh) {
+            if (emptyRatio > 0) {
+                emptyMesh.visible = true;
+                emptyMesh.scale.set(emptyRatio, 1, 1);
+                emptyMesh.position.set(length / 2 - (length * emptyRatio) / 2, 0, 0);
+            } else {
+                emptyMesh.visible = false;
+            }
+        }
+    }
+
+    function applyFlatStackColorState(stack, requestedColor) {
+        if (!stack?.userData?.stackFill) return;
+        const fillData = stack.userData.stackFill;
+        const baseColors = stack.userData.stackFillBaseColors || {
+            filled: stackFillConfig.filledColor,
+            empty: stackFillConfig.emptyColor
+        };
+        const isBaseState = requestedColor === lineColors.stack || requestedColor === lineColors.ownerJF;
+        if (isBaseState) {
+            fillData.filledMesh.material.color.set(baseColors.filled);
+            fillData.emptyMesh.material.color.set(baseColors.empty);
+            fillData.filledMesh.material.opacity = stackFillConfig.filledOpacity;
+            fillData.emptyMesh.material.opacity = stackFillConfig.emptyOpacity;
+            fillData.filledMesh.material.transparent = stackFillConfig.filledOpacity < 1;
+            fillData.emptyMesh.material.transparent = stackFillConfig.emptyOpacity < 1;
+        } else {
+            fillData.filledMesh.material.color.set(requestedColor);
+            fillData.emptyMesh.material.color.set(requestedColor);
+            fillData.filledMesh.material.opacity = 0.9;
+            fillData.emptyMesh.material.opacity = 0.9;
+            fillData.filledMesh.material.transparent = true;
+            fillData.emptyMesh.material.transparent = true;
+        }
+    }
 
     function setStackColor(obj, color) {
         if (!obj) return;
@@ -2435,6 +2419,8 @@
                     }
                 }
             });
+        } else if (targetObj.userData?.stackFill) {
+            applyFlatStackColorState(targetObj, targetColor);
         } else if (targetObj.material) {
             // 为平仓设置颜色
             targetObj.material.color.set(targetColor);
