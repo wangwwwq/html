@@ -421,6 +421,8 @@
   import * as THREE from 'three';
   import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
   import {CSS2DRenderer, CSS2DObject} from 'three/addons/renderers/CSS2DRenderer.js';
+  import {FontLoader} from 'three/addons/loaders/FontLoader.js';
+  import {TextGeometry} from 'three/addons/geometries/TextGeometry.js';
 
   // 配置获取
   async function fetchYardConfig() {
@@ -766,10 +768,10 @@
   async function fetchAllWeighbridgesFromAPI() {
     const now = Date.now();
     
-    // 如果有缓存且未过期，直接使用缓存
-    if (globalWeighbridgeData && (now - lastWeighbridgeFetchTime) < CACHE_DURATION) {
-      return globalWeighbridgeData;
-    }
+    // 缓存检查已禁用 - 每次都发送真实请求
+    // if (globalWeighbridgeData && (now - lastWeighbridgeFetchTime) < CACHE_DURATION) {
+    //   return globalWeighbridgeData;
+    // }
     
     // 如果已经有请求在进行中，等待该请求完成
     if (ongoingWeighbridgeFetchPromise) {
@@ -966,28 +968,44 @@
 
   // 自动刷新定时器
   let autoRefreshTimer = null;
+  let autoRefreshStarted = false; // 防止重复启动的标志
 
   // 启动5秒定时轮询
   function startAutoRefresh() {
+    // 防止重复启动
+    if (autoRefreshStarted) {
+      console.warn('[地磅轮询] 已经启动，忽略重复调用');
+      return;
+    }
+    
     // 安全检查：确保scene对象已经初始化
     if (typeof scene === 'undefined' || !scene) {
+      console.warn('[地磅轮询] Scene未初始化，1秒后重试');
       setTimeout(startAutoRefresh, 1000); // 1秒后重试
       return;
     }
     
-    // 清除之前的定时器
+    // 标记为已启动
+    autoRefreshStarted = true;
+    
+    // 清除之前的定时器（如果存在）
     if (autoRefreshTimer) {
+      console.warn('[地磅轮询] 清除旧定时器');
       clearInterval(autoRefreshTimer);
     }
     
+    console.log('[地磅轮询] ===== 启动自动刷新，间隔5秒 =====');
     
     // 立即获取一次数据
+    console.log('[地磅轮询] 立即执行首次请求');
     fetchAllWeighbridgesFromAPI().catch(error => {
+      console.error('[地磅轮询] 首次请求失败:', error);
     });
     
     // 每5秒自动刷新一次
     autoRefreshTimer = setInterval(async () => {
       try {
+        console.log('[地磅轮询] 开始请求地磅数据...', new Date().toLocaleTimeString());
         
         // 强制清除缓存，确保每次都发送真实请求
         globalWeighbridgeData = null;
@@ -995,7 +1013,9 @@
         ongoingWeighbridgeFetchPromise = null;
         
         await fetchAllWeighbridgesFromAPI();
+        console.log('[地磅轮询] 地磅数据请求完成', new Date().toLocaleTimeString());
       } catch (error) {
+        console.error('[地磅轮询] 请求失败:', error);
       }
     }, 5000); // 5秒 = 5000毫秒
   }
@@ -1883,9 +1903,9 @@
     securityRoom.add(window2);
     
     // 添加保安室标识
-    const textLoader = new THREE.FontLoader();
+    const textLoader = new FontLoader();
     textLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function(font) {
-      const textGeometry = new THREE.TextGeometry('保安室', {
+      const textGeometry = new TextGeometry('保安室', {
         font: font,
         size: 1,
         height: 0.1,
@@ -4573,21 +4593,23 @@ function getSiloSelectedColor(obj) {
       await Promise.all(starSiloPromises);
       // ================= 星仓创建完成 =================
 
-      // 添加保安室
+    } catch (error) {
+      console.error('[初始化] 场景初始化失败，但仍启动地磅轮询', error);
+    }
+
+    // 添加保安室（独立于主初始化流程，失败不影响其他功能）
+    try {
       const securityRoom = buildSecurityRoom();
       scene.add(securityRoom);
-
     } catch (error) {
-      // 网络错误已在API调用中显示，这里不再重复显示
-      return; // 停止初始化过程
+      console.warn('[初始化] 保安室创建失败，已跳过', error);
     }
-   
-
 
     fitCameraToYard(yardL, yardWidth, wH + rH, 1.0);
     updateCompass();
     
-    // 初始化完成后启动自动刷新
+    // 初始化完成后启动自动刷新（无论初始化是否成功都启动）
+    console.log('[初始化] 准备启动地磅自动刷新...');
     startAutoRefresh();
   }
 
