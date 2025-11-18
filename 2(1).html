@@ -675,6 +675,8 @@
     }
   };
 
+
+
   // 全局筒仓数据缓存
   let globalSiloData = null;
   let lastFetchTime = 0;
@@ -1930,6 +1932,28 @@
 
   let stackIdSeq = 1;
 
+  // 堆垛容量映射表
+  const stackCapacityMap = {
+    '3-1': 8500,
+    '3-2': 7500,
+    '3-3': 7500,
+    '4-1': 8500,
+    '4-2': 7500,
+    '4-3': 7500,
+    '5-1': 6000,
+    '5-2': 5500,
+    '5-3': 5500,
+    '6-1': 1000,
+    '7-1': 1000,
+    '2-1': 10000, // #A仓库保持10000吨
+    '1-1': 10000  // P04平仓保持10000吨
+  };
+
+  // 获取堆垛容量的函数
+  function getStackCapacity(stackNumber) {
+    return stackCapacityMap[stackNumber] || 10000; // 默认10000吨
+  }
+
   async function populateStacks(warehouseGroup, wConf, stackConf, index) {
     const {length, width, height} = wConf;
     const {length: sx, width: sz, height: sy} = stackConf.stackSize;
@@ -2044,9 +2068,11 @@
 
       const numericMaxCapacity = toNumber(siloInfo.maxCapacity);
       const numericCurrentStorage = toNumber(siloInfo.currentStorage);
-      const safeMaxCapacity = Number.isFinite(numericMaxCapacity) && numericMaxCapacity > 0 
-        ? numericMaxCapacity 
-        : 10000; // 使用固定的10000吨作为默认最大容量
+      // 使用堆垛编号映射表获取正确的容量
+      const defaultCapacity = getStackCapacity(stackNumber);
+      const safeMaxCapacity = Number.isFinite(numericMaxCapacity) && numericMaxCapacity > 0
+        ? numericMaxCapacity
+        : defaultCapacity;
       const safeCurrentStorage = Number.isFinite(numericCurrentStorage) ? Math.max(numericCurrentStorage, 0) : 0;
       
       stack.userData = {
@@ -2061,7 +2087,7 @@
         仓库序号: index + 1,
         体积_m3: '未提供', // 固定显示"未提供"
         尺寸_m: '未提供', // 固定显示"未提供"
-        最大容量_t: '10000', // 固定显示10000吨
+        最大容量_t: safeMaxCapacity.toString(), // 使用映射表中的容量值
         当前储量_t: siloInfo.currentStorage,
         仓内温度_c: siloInfo.temperature,
         仓内湿度_percent: siloInfo.humidity,
