@@ -601,7 +601,6 @@
   function hslToHex(hslString) {
     const match = hslString.match(/hsl\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)%,\s*(\d+(?:\.\d+)?)%\)/);
     if (!match) {
-      console.warn('无法解析HSL颜色:', hslString);
       return 0x666666;
     }
     
@@ -634,13 +633,11 @@
     const bHex = Math.round(b * 255);
     
     const result = (rHex << 16) + (gHex << 8) + bHex;
-    console.log(`HSL转换: ${hslString} -> RGB(${rHex}, ${gHex}, ${bHex}) -> 0x${result.toString(16)}`);
     return result;
   }
 
   // 颜色解析测试函数
   function testColorParsing() {
-    console.log('=== 颜色解析测试 ===');
     const testColors = [
       'hsl(162.0, 65%, 55%)',
       '#ff0000',
@@ -652,15 +649,13 @@
     
     testColors.forEach(color => {
       const result = parseColor(color);
-      console.log(`输入: ${color} -> hex: 0x${result.hex.toString(16)}, css: ${result.css}`);
     });
-    console.log('=== 测试结束 ===');
   }
 
   // 真实API接口配置
   const API_CONFIG = {
-    // BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务
-      BASE_URL: 'https://open.circlelog.com', // 远程API服务
+    BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务
+      // BASE_URL: 'https://open.circlelog.com', // 远程API服务
     PATH_PREFIX: '/iot-service',
     ENDPOINTS: {
       ALL_SILOS: '/api/order-driver/siloStarWarehouseData',
@@ -692,7 +687,6 @@
     
     // 如果已经有请求在进行中，等待该请求完成
     if (ongoingFetchPromise) {
-      console.log('等待进行中的API请求完成...');
       return await ongoingFetchPromise;
     }
 
@@ -710,7 +704,6 @@
     async function performActualFetch() {
       try {
         const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_SILOS}`;
-        console.log('正在从API获取筒仓数据:', apiUrl);
         
         const response = await fetch(apiUrl, {
           method: 'GET',
@@ -747,13 +740,11 @@
           };
           
           lastFetchTime = now;
-          console.log(`成功获取 ${globalSiloData.totalCount} 个筒仓数据`);
           return globalSiloData;
         } else {
           throw new Error('API返回数据格式错误');
         }
       } catch (error) {
-        console.error('获取API数据失败:', error);
         // 显示网络错误提示
         showNetworkError();
         throw new Error('网络繁忙，请稍后再试');
@@ -772,7 +763,6 @@
     
     // 如果已经有请求在进行中，等待该请求完成
     if (ongoingWeighbridgeFetchPromise) {
-      console.log('等待进行中的地磅API请求完成...');
       return await ongoingWeighbridgeFetchPromise;
     }
 
@@ -790,8 +780,6 @@
     async function performActualWeighbridgeFetch() {
       try {
         const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.ALL_WEIGHBRIDGES}`;
-        console.log('🌐 正在从真实API获取地磅数据:', apiUrl);
-        console.log('📡 数据源: 真实生产环境API (非模拟数据)');
         
         const response = await fetch(apiUrl, {
           method: 'GET',
@@ -815,7 +803,6 @@
           
           // 检查是否有实际数据
           if (dataKeys.length === 0) {
-            console.log('地磅API返回空数据对象，当前无地磅数据');
             globalWeighbridgeData = {
               weighbridgeList: [],
               totalCount: 0,
@@ -856,8 +843,6 @@
                 const match = equipmentNo.match(/(\d+)$/);
                 weighbridgeId = match ? `${match[1]}号磅` : equipmentNo;
               }
-              
-              console.log(`📊 设备 ${equipmentNo} -> 地磅 ${weighbridgeId}: 车牌 ${record.vehicleno}, 重量 ${(record.ponderation/1000).toFixed(2)}吨`);
               
           // 将分组后的数据转换为前端期望的格式
             // 将重量从kg转换为吨
@@ -907,8 +892,6 @@
           };
           
           lastWeighbridgeFetchTime = now;
-          console.log(`✅ 成功从真实API获取 ${globalWeighbridgeData.totalCount} 个地磅数据`);
-          console.log(`📊 数据来源: ${globalWeighbridgeData.dataSource} - ${apiUrl}`);
           
           // 更新场景中所有地磅的显示状态
           try {
@@ -919,7 +902,6 @@
           
           return globalWeighbridgeData;
         } else {
-          console.warn('地磅API返回数据格式错误，返回空数据结构');
           // 返回空的默认数据结构，不抛出错误
           globalWeighbridgeData = {
             weighbridgeList: [],
@@ -940,12 +922,10 @@
           return globalWeighbridgeData;
         }
       } catch (error) {
-        console.error('获取地磅API数据失败:', error);
         // 显示网络错误提示
         showNetworkError();
         
         // 返回空的默认数据结构，不抛出错误
-        console.warn('API调用失败，返回空的地磅数据结构');
         globalWeighbridgeData = {
           weighbridgeList: [],
           totalCount: 0,
@@ -974,7 +954,6 @@
   function startAutoRefresh() {
     // 安全检查：确保scene对象已经初始化
     if (typeof scene === 'undefined' || !scene) {
-      console.warn('⚠️ Scene对象未初始化，延迟启动自动刷新');
       setTimeout(startAutoRefresh, 1000); // 1秒后重试
       return;
     }
@@ -984,35 +963,27 @@
       clearInterval(autoRefreshTimer);
     }
     
-    console.log('🚀 启动地磅数据5秒定时轮询');
-    
     // 立即获取一次数据
     fetchAllWeighbridgesFromAPI().catch(error => {
-      console.error('初始数据获取失败:', error);
     });
     
     // 每5秒自动刷新一次
     autoRefreshTimer = setInterval(async () => {
       try {
-        console.log('🔄 执行5秒定时轮询...');
         
         // 强制清除缓存，确保每次都发送真实请求
-        console.log('🗑️ 清除地磅数据缓存，强制发送API请求');
         globalWeighbridgeData = null;
         lastWeighbridgeFetchTime = 0;
         ongoingWeighbridgeFetchPromise = null;
         
         await fetchAllWeighbridgesFromAPI();
-        console.log('✅ 地磅数据自动刷新完成 -', new Date().toLocaleTimeString());
       } catch (error) {
-        console.error('❌ 定时轮询失败:', error);
       }
     }, 5000); // 5秒 = 5000毫秒
   }
   
   // 手动强制刷新功能（用于调试）
   function forceRefreshWeighbridges() {
-    console.log('🔧 手动强制刷新地磅数据...');
     // 清除所有缓存
     globalWeighbridgeData = null;
     lastWeighbridgeFetchTime = 0;
@@ -1029,7 +1000,6 @@
     if (autoRefreshTimer) {
       clearInterval(autoRefreshTimer);
       autoRefreshTimer = null;
-      console.log('⏹️ 已停止地磅数据定时轮询');
     }
   }
 
@@ -1039,7 +1009,6 @@
     
     // 如果没有编号，直接返回默认数据
     if (!weighbridgeNumber) {
-      console.log(`地磅 ID ${weighbridgeId} 没有分配编号，使用默认数据`);
       return {
         weighbridgeInfo: {
           id: `未分配编号-${weighbridgeId}`,
@@ -1069,7 +1038,6 @@
     try {
       allWeighbridgesData = await fetchAllWeighbridgesFromAPI();
     } catch (error) {
-      console.warn('获取地磅API数据失败，使用默认数据:', error);
       // 如果API调用失败，直接返回默认数据，不抛出错误
       return {
         weighbridgeInfo: {
@@ -1096,7 +1064,6 @@
     }
     
     if (!allWeighbridgesData || !allWeighbridgesData.weighbridgeList) {
-      console.warn('地磅API数据格式异常，使用默认数据');
       // 如果数据格式异常，返回默认数据，不抛出错误
       return {
         weighbridgeInfo: {
@@ -1127,12 +1094,10 @@
     if (weighbridgeNumber) {
       // 优先使用传入的编号查找
       targetWeighbridge = allWeighbridgesData.weighbridgeList.find(wb => wb.weighbridgeInfo.id === weighbridgeNumber);
-      console.log(`使用编号查找地磅: ${weighbridgeNumber}`, targetWeighbridge ? '找到' : '未找到');
     }
     
     // 如果按编号未找到，返回默认数据
     if (!targetWeighbridge) {
-      console.warn(`API中未找到地磅编号: ${weighbridgeNumber}`);
       return {
         weighbridgeInfo: {
           id: weighbridgeNumber,
@@ -1159,7 +1124,6 @@
     
     if (targetWeighbridge) {
       const actualId = targetWeighbridge.weighbridgeInfo.id;
-      console.log(`成功获取地磅数据: ${actualId}`);
       
       return {
         weighbridgeInfo: targetWeighbridge.weighbridgeInfo,
@@ -1175,7 +1139,6 @@
     
     // 如果没有编号，直接返回默认数据，表示接口中没有对应数据
     if (!siloNumber) {
-      console.log(`筒仓 ID ${siloId} 没有分配编号，使用默认数据`);
       return {
         siloInfo: {
           id: `未分配编号-${siloId}`,
@@ -1198,7 +1161,6 @@
     const allSilosData = await fetchAllSilosFromAPI();
     
     if (!allSilosData || !allSilosData.siloList) {
-      console.error('无法获取筒仓数据');
       throw new Error('网络繁忙，请稍后再试');
     }
 
@@ -1207,24 +1169,20 @@
     if (siloNumber) {
       // 优先使用传入的编号查找
       targetSilo = allSilosData.siloList.find(silo => silo.siloInfo.id === siloNumber);
-      console.log(`使用编号查找筒仓: ${siloNumber}`, targetSilo ? '找到' : '未找到');
     }
     
     // 如果按编号未找到，不使用备用映射，直接返回空数据
     // 这样可以确保只有API中真正存在的编号才会显示数据
     if (!targetSilo) {
-      console.warn(`API中未找到筒仓编号: ${siloNumber}`);
     }
     
     if (targetSilo) {
       const actualId = targetSilo.siloInfo.id;
-      console.log(`成功找到筒仓数据: ${actualId}`, targetSilo);
       
       // 特殊处理：P01或以P开头的数据实际上是平仓数据
       const actualType = (actualId === 'P01' || actualId.startsWith('P')) ? '平仓P01' : targetSilo.siloInfo.type;
       
       if (actualId === 'P01' || actualId.startsWith('P')) {
-        console.log(`检测到平仓数据: ${actualId}, 类型从 "${targetSilo.siloInfo.type}" 修正为 "${actualType}"`);
       }
       
       // 转换API数据格式为前端需要的格式
@@ -1251,7 +1209,6 @@
         dataSource: targetSilo.dataSource || 'production-api'
       };
     } else {
-      console.warn(`未找到筒仓数据: 编号 ${siloNumber}, 数字ID ${siloId}`);
       // 返回默认的空筒仓数据，避免系统崩溃
       return {
         siloInfo: {
@@ -1404,12 +1361,10 @@
       
       // 播放器事件监听
       flvPlayer.on(flvjs.Events.LOADING_COMPLETE, () => {
-        console.log('监控流加载完成');
         monitorLoading.style.display = 'none';
       });
       
       flvPlayer.on(flvjs.Events.ERROR, (errorType, errorDetail, errorInfo) => {
-        console.error('监控播放错误:', errorType, errorDetail, errorInfo);
         monitorLoading.innerHTML = '监控流加载失败，请稍后重试 <button onclick="retryMonitorStream()" style="margin-left:10px;padding:2px 8px;background:#007bff;color:white;border:none;border-radius:3px;cursor:pointer;">重试</button>';
         monitorLoading.style.color = '#dc2626';
       });
@@ -1417,12 +1372,10 @@
       try {
         flvPlayer.load();
       } catch (e) {
-        console.error('FLV播放器加载失败:', e);
         monitorLoading.innerHTML = '监控播放器初始化失败 <button onclick="retryMonitorStream()" style="margin-left:10px;padding:2px 8px;background:#007bff;color:white;border:none;border-radius:3px;cursor:pointer;">重试</button>';
         monitorLoading.style.color = '#dc2626';
       }
     } else {
-      console.error('浏览器不支持FLV播放');
       monitorLoading.innerHTML = '当前浏览器不支持FLV视频播放<br><small style="font-size:12px;">建议使用Chrome、Firefox或Edge浏览器</small>';
       monitorLoading.style.color = '#dc2626';
     }
@@ -1698,9 +1651,7 @@
         capacity: (vol * 0.75).toFixed(1) // 假设密度0.75吨/立方米
       });
       
-      console.log('成功获取平仓P01数据:', apiData);
     } catch (error) {
-      console.error('获取平仓P01数据失败:', error);
       // API调用失败时，使用空数据
       apiData = {
         siloInfo: {
@@ -1752,7 +1703,6 @@
 
     // 所有平仓P01都注册为可交互对象，无论是否有物料数据
     registerInteractive(stack);
-    console.log('平仓P01注册为交互对象:', stack.userData.type, stack.userData.id, '交互对象总数:', interactives.length);
   }
 
   // 交互逻辑
@@ -1801,7 +1751,6 @@
         materials.forEach(m => {
           const colorData = parseColor(m.companyColor);
           const companyColor = colorData.css || '#666666';
-          console.log(`悬停面板颜色: 公司=${m.company}, 原始颜色=${m.companyColor}, 解析结果=${companyColor}`);
           const isNegative = parseFloat(m.amount) < 0;
           const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
           const negativeIcon = isNegative ? '⬇️ ' : '';
@@ -2053,7 +2002,7 @@ function setStackColor(obj, color) {
         } else if (child.material.type === 'MeshStandardMaterial') {
           if (isRoof) {
             // 屋顶颜色逻辑：可点击的为绿色，不可点击的为深灰色
-            const roofColor = isClickable ? 0x33bb33 : 0xd7d7d7;
+            const roofColor = isClickable ? '#11B96F' : 0xd7d7d7;
             child.material.color.set(roofColor);
           } else {
             // 非屋顶部分使用目标颜色
@@ -2163,7 +2112,6 @@ function getSiloSelectedColor(obj) {
         materials.forEach((m, index) => {
           const colorData = parseColor(m.companyColor);
           const companyColor = colorData.css || '#666666';
-          console.log(`详情面板颜色: 公司=${m.company}, 原始颜色=${m.companyColor}, 解析结果=${companyColor}`);
           const isNegative = parseFloat(m.amount) < 0;
           const amountStyle = isNegative ? 'color: #d32f2f; font-weight: bold;' : '';
           const negativeIcon = isNegative ? '⬇️ ' : '';
@@ -2312,14 +2260,12 @@ function getSiloSelectedColor(obj) {
     if (allHits.length > 0) {
       target = resolveInteractiveTarget(allHits[0].object);
       if (!target && allHits.length > 0) {
-        console.log('射线检测到对象但无法解析为交互目标:', allHits[0].object.userData?.type, '射线目标总数:', raycastTargets.length, '交互对象总数:', interactives.length);
       }
     }
     if (target) {
       if (hovered !== target) {
         if (hovered && hovered !== selected) setStackColor(hovered, getStackBaseColor(hovered));
         hovered = target;
-        console.log('悬停对象变更:', target.userData?.type, target.userData?.id);
       }
       if (hovered !== selected) {
         const hoveredType = hovered.userData?.type;
@@ -2386,8 +2332,6 @@ function getSiloSelectedColor(obj) {
     // 阻止事件冒泡和默认行为
     ev.stopPropagation();
     ev.preventDefault();
-    
-    console.log('Canvas点击事件触发, hovered:', hovered?.userData?.type, hovered?.userData?.id);
     
     // 处理对象选择逻辑
     if (hovered) {
@@ -2467,15 +2411,12 @@ function getSiloSelectedColor(obj) {
           
           if (matchingSilo && matchingSilo.siloInfo && matchingSilo.siloInfo.videoStreamUrl) {
             videoStreamUrl = matchingSilo.siloInfo.videoStreamUrl;
-            console.log(`找到仓库 ${siloId} 的视频流URL:`, videoStreamUrl);
           } else {
-            console.warn(`未找到仓库 ${siloId} 的视频流URL，使用默认URL`);
           }
         }
         
         showMonitorPanel(userData, videoStreamUrl);
       } catch (error) {
-        console.error('获取监控视频流失败:', error);
         // 如果获取API数据失败，仍然显示监控面板但使用默认URL
         showMonitorPanel(userData);
       }
@@ -2487,13 +2428,12 @@ function getSiloSelectedColor(obj) {
   // 监控面板控制按钮事件监听
   monitorClose.addEventListener('click', closeMonitorPanel);
 
-  playBtn.addEventListener('click', () => {
-    if (flvPlayer && monitorVideo.paused) {
-      flvPlayer.play().catch(e => {
-        console.error('播放失败:', e);
-      });
-    }
-  });
+    playBtn.addEventListener('click', () => {
+      if (flvPlayer && monitorVideo.paused) {
+        flvPlayer.play().catch(e => {
+        });
+      }
+    });
 
   pauseBtn.addEventListener('click', () => {
     if (flvPlayer && !monitorVideo.paused) {
@@ -2932,7 +2872,6 @@ function getSiloSelectedColor(obj) {
   function debugStarSilos() {
     // 安全检查：确保scene对象存在
     if (typeof scene === 'undefined' || !scene || typeof scene.traverse !== 'function') {
-      console.warn('⚠️ Scene对象未初始化，无法调试星仓');
       return [];
     }
     
@@ -2952,10 +2891,7 @@ function getSiloSelectedColor(obj) {
       }
     });
     
-    console.log('=== 场景中的星仓对象 ===');
-    console.log(`找到 ${starSilos.length} 个星仓:`);
     starSilos.forEach((silo, index) => {
-      console.log(`${index + 1}. ${silo.编号} - 位置(${silo.位置.x}, ${silo.位置.y}, ${silo.位置.z}) - 状态: ${silo.状态} - 数据来源: ${silo.数据来源}`);
     });
     
     // 检查缺失的星仓
@@ -2964,9 +2900,7 @@ function getSiloSelectedColor(obj) {
     const missingSilos = expectedSilos.filter(expected => !foundSilos.includes(expected));
     
     if (missingSilos.length > 0) {
-      console.log(`\n⚠️ 缺失的星仓: ${missingSilos.join(', ')}`);
     } else {
-      console.log(`\n✅ 所有星仓都已创建`);
     }
     
     return { found: starSilos, missing: missingSilos };
@@ -2979,20 +2913,13 @@ function getSiloSelectedColor(obj) {
    * 调试星仓编号分配过程
    */
   function debugStarSiloNumbering() {
-    console.log('=== 星仓编号分配调试 ===');
-    console.log(`当前星仓行索引: ${starSiloRowIndex}`);
-    console.log(`当前星仓列索引: ${starSiloColIndex}`);
-    console.log('星仓编号映射表:');
     siloNumberMap.starSilo.forEach((group, index) => {
-      console.log(`  第${index + 1}组: [${group.join(', ')}]`);
     });
     
     // 下一个星仓编号分配
     if (starSiloRowIndex < siloNumberMap.starSilo.length && starSiloColIndex < siloNumberMap.starSilo[starSiloRowIndex].length) {
       const nextNumber = siloNumberMap.starSilo[starSiloRowIndex][starSiloColIndex];
-      console.log(`下一个分配的编号: ${nextNumber}`);
     } else {
-      console.log('已超出预定义编号范围，将使用自动生成编号');
     }
   }
   
@@ -3005,7 +2932,6 @@ function getSiloSelectedColor(obj) {
   function resetStarSiloCounters() {
     starSiloRowIndex = 0;
     starSiloColIndex = 0;
-    console.log('星仓编号计数器已重置');
     debugStarSiloNumbering();
   }
   
@@ -3015,14 +2941,8 @@ function getSiloSelectedColor(obj) {
     const expectedTotal = 18;
     const actualTotal = siloNumberMap.starSilo.flat().length;
     
-    console.log('=== 星仓编号验证 ===');
-    console.log(`预期总数: ${expectedTotal}`);
-    console.log(`实际总数: ${actualTotal}`);
-    console.log(`验证结果: ${actualTotal === expectedTotal ? '✓ 通过' : '✗ 失败'}`);
-    
     // 打印每组编号
     siloNumberMap.starSilo.forEach((group, index) => {
-      console.log(`第${index + 1}组: [${group.join(', ')}] (${group.length}个)`);
     });
     
     return actualTotal === expectedTotal;
@@ -3157,7 +3077,6 @@ function getSiloSelectedColor(obj) {
         capacity: capacity
       });
     } catch (error) {
-      console.error(`获取筒仓 ${siloNumber} 数据失败:`, error);
       // 使用默认数据继续创建筒仓，避免完全失败
       apiData = {
         siloInfo: {
@@ -3275,7 +3194,6 @@ function getSiloSelectedColor(obj) {
     }
     
     setWeighbridgeColor(weighbridge, color);
-    console.log(`🎨 地磅 ${weighbridge.userData.编号} 状态: ${status}, 颜色更新为: 0x${color.toString(16)}`);
   }
   
   // 车辆称重模拟函数
@@ -3299,15 +3217,6 @@ function getSiloSelectedColor(obj) {
     
     // 安全检查：确保scene对象存在且有traverse方法
     if (typeof sceneRef === 'undefined' || !sceneRef || typeof sceneRef.traverse !== 'function') {
-      console.warn('⚠️ Scene对象未初始化，跳过地磅更新');
-      console.warn('调试信息:', {
-        sceneType: typeof scene,
-        sceneExists: !!scene,
-        windowSceneType: typeof window.globalScene,
-        windowSceneExists: !!window.globalScene,
-        sceneRefType: typeof sceneRef,
-        sceneRefExists: !!sceneRef
-      });
       return;
     }
     
@@ -3317,7 +3226,6 @@ function getSiloSelectedColor(obj) {
     
     // 如果API返回空数据，清空所有地磅的车辆
     if (globalWeighbridgeData.weighbridgeList.length === 0) {
-      console.log('🧹 API返回空数据，清空所有地磅车辆');
       
       // 使用已验证的sceneRef对象
       sceneRef.traverse((object) => {
@@ -3326,7 +3234,6 @@ function getSiloSelectedColor(obj) {
           const state = weighbridgeStates.get(weighbridgeId);
           
           if (state && state.hasVehicle) {
-            console.log(`🚫 清空地磅 ${weighbridgeId} 的车辆`);
             removeVehicleFromWeighbridge(object, true); // API驱动的清空
           }
         }
@@ -3350,7 +3257,6 @@ function getSiloSelectedColor(obj) {
           // 获取地磅状态管理器
           const state = weighbridgeStates.get(weighbridgeId);
           if (!state) {
-            console.warn(`⚠️ 地磅 ${weighbridgeId} 状态管理器不存在`);
             return;
           }
           
@@ -3381,27 +3287,22 @@ function getSiloSelectedColor(obj) {
           // 根据API数据同步车辆3D模型
           if (hasVehicleInAPI && !state.hasVehicle) {
             // API显示有车，但3D场景中没有车辆 -> 添加车辆
-            console.log(`🚗 地磅 ${weighbridgeId} 添加车辆: ${weighbridgeInfo.plateNumber}`);
             addVehicleToWeighbridgeFromAPI(object, weighbridgeInfo);
           } else if (!hasVehicleInAPI && state.hasVehicle) {
             // API显示无车，但3D场景中有车辆 -> 移除车辆
-            console.log(`🚫 地磅 ${weighbridgeId} 移除车辆`);
             removeVehicleFromWeighbridge(object, true); // API驱动的清空
           } else if (hasVehicleInAPI && state.hasVehicle) {
             // 都有车辆，更新车辆信息
-            console.log(`🔄 地磅 ${weighbridgeId} 更新车辆信息: ${weighbridgeInfo.plateNumber}`);
             updateVehicleInfo(state, weighbridgeInfo);
           }
           
           // 更新地磅颜色
           updateWeighbridgeColor(object);
           
-          console.log(`🔄 地磅 ${weighbridgeId} 数据已更新: ${newStatus}, 重量: ${weighbridgeInfo.currentWeight}吨, 车牌: ${weighbridgeInfo.plateNumber}`);
         } else {
           // API数据中没有找到对应的地磅数据，清空车辆
           const state = weighbridgeStates.get(weighbridgeId);
           if (state && state.hasVehicle) {
-            console.log(`🚫 API中未找到地磅 ${weighbridgeId} 数据，清空车辆`);
             removeVehicleFromWeighbridge(object, true); // API驱动的清空
           }
         }
@@ -3415,7 +3316,6 @@ function getSiloSelectedColor(obj) {
     const state = weighbridgeStates.get(weighbridgeId);
     
     if (state.hasVehicle) {
-      console.log(`⚠️ 地磅 ${weighbridgeId} 已有车辆，跳过添加`);
       return;
     }
     
@@ -3455,7 +3355,6 @@ function getSiloSelectedColor(obj) {
     if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') {
       scene.add(vehicleModel);
     } else {
-      console.warn('⚠️ Scene对象未初始化，无法添加车辆模型');
       return; // 如果无法添加到场景，直接返回
     }
     
@@ -3465,8 +3364,6 @@ function getSiloSelectedColor(obj) {
     state.vehicleModel = vehicleModel;
     state.currentWeight = vehicleInfo.weight;
     state.isWeighing = true;
-    
-    console.log(`✅ 车辆已添加到地磅 ${weighbridgeId}: ${vehicleInfo.plateNumber}`);
   }
   
   // 更新车辆信息
@@ -3521,7 +3418,6 @@ function getSiloSelectedColor(obj) {
       weighbridgeId: id,
       weighbridgeNumber: id
     }).then(fetchedData => {
-      console.log(`✅ 地磅 ${id} API数据获取成功，更新信息`);
       // 更新地磅的userData
       if (group && group.userData) {
         const { weighbridgeInfo } = fetchedData;
@@ -3548,7 +3444,6 @@ function getSiloSelectedColor(obj) {
         updateWeighbridgeColor(group);
       }
     }).catch(error => {
-      console.warn(`⚠️ 地磅 ${id} API数据获取失败，使用默认数据:`, error);
     });
 
     const { weighbridgeInfo } = apiData;
@@ -3622,7 +3517,6 @@ function getSiloSelectedColor(obj) {
     if (typeof scene !== 'undefined' && scene && typeof scene.add === 'function') {
       scene.add(vehicleModel);
     } else {
-      console.warn('⚠️ Scene对象未初始化，无法添加车辆模型');
       return; // 如果无法添加到场景，直接返回
     }
     
@@ -3644,8 +3538,6 @@ function getSiloSelectedColor(obj) {
     setTimeout(() => {
       removeVehicleFromWeighbridge(weighbridge);
     }, Math.random() * 15000 + 10000); // 10-25秒后车辆离开
-    
-    console.log(`车辆上磅: ${weighbridgeId}, 车牌: ${vehicleInfo.plateNumber}, 重量: ${vehicleInfo.weight}吨`);
   }
   
   // 车辆下磅函数
@@ -3655,7 +3547,6 @@ function getSiloSelectedColor(obj) {
     
     // 安全检查：确保state存在
     if (!state) {
-      console.warn(`⚠️ 地磅 ${weighbridgeId} 状态管理器不存在，无法移除车辆`);
       return;
     }
     
@@ -3667,7 +3558,6 @@ function getSiloSelectedColor(obj) {
       if (typeof scene !== 'undefined' && scene && typeof scene.remove === 'function') {
         scene.remove(state.vehicleModel);
       } else {
-        console.warn('⚠️ Scene对象未初始化，无法移除车辆模型');
       }
     }
     
@@ -3685,8 +3575,6 @@ function getSiloSelectedColor(obj) {
     weighbridge.userData.车辆类型 = '';
     weighbridge.userData.到达时间 = '';
     weighbridge.userData.使用次数++;
-    
-    console.log(`车辆下磅: ${weighbridgeId}${isApiDriven ? ' (API驱动)' : ' (模拟驱动)'}`);
     
     // 只有在非API驱动的情况下才设置下一辆车上磅的定时器
     if (!isApiDriven) {
@@ -3757,7 +3645,6 @@ function getSiloSelectedColor(obj) {
         capacity: capacity
       });
     } catch (error) {
-      console.error(`获取星仓 ${starSiloNumber} 数据失败:`, error);
       // 使用默认数据继续创建星仓，避免完全失败
       apiData = {
         siloInfo: {
@@ -4038,7 +3925,6 @@ function getSiloSelectedColor(obj) {
       await Promise.all(starSiloPromises);
 
       // 添加地磅 - 立即渲染，不等待任何条件
-      console.log('🚀 开始立即添加地磅...');
       
       // 立即创建地磅，不使用await等待，确保立即渲染
       placeWeighbridge(-55, -50, '1号磅', {       // 1号磅在-60米(-往西)，-40米处(-往南)
@@ -4046,9 +3932,7 @@ function getSiloSelectedColor(obj) {
         width: 10,
         rotation: Math.PI / 2 // 90度旋转，使地磅垂直于道路
       }).then(() => {
-        console.log('✅ 1号磅渲染完成');
       }).catch(error => {
-        console.error('❌ 1号磅渲染失败:', error);
       });
       
       placeWeighbridge(-10, -20, '2号磅', {       // 2号磅在-10米(-往西)，-20米处(-往南)
@@ -4056,12 +3940,9 @@ function getSiloSelectedColor(obj) {
         width: 10,
         rotation: 0//
       }).then(() => {
-        console.log('✅ 2号磅渲染完成');
       }).catch(error => {
-        console.error('❌ 2号磅渲染失败:', error);
       });
       
-      console.log('🎯 地磅立即渲染启动完成（不等待API数据）');
 
       // 添加保安室 - 放置在园区南侧入口附近
       const securityRoomX = -80; // 园区中央X位置
@@ -4072,10 +3953,8 @@ function getSiloSelectedColor(obj) {
         height: 4,
         roofHeight: 1.5
       });
-      console.log('✅ 保安室创建完成');
 
     } catch (error) {
-      console.error('初始化失败:', error);
       // 网络错误已在API调用中显示，这里不再重复显示
       return; // 停止初始化过程
     }
@@ -4086,7 +3965,6 @@ function getSiloSelectedColor(obj) {
     updateCompass();
     
     // 初始化完成后启动自动刷新
-    console.log('🎯 场景初始化完成，启动地磅数据自动刷新');
     startAutoRefresh();
   }
 
