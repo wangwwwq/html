@@ -1718,7 +1718,8 @@
       // 检查当前对象是否在可交互集合中
       if (interactiveSet.has(current)) {
         const userData = current.userData;
-        if (userData?.type === '筒仓' || userData?.type === '星仓') {
+        // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+        if (userData?.type === '筒仓' || userData?.type === '星仓' || userData?.type === '未知类型') {
           // 筒仓/星仓无论是否有数据都可以悬停显示名称
           return current;
         } else if (userData?.type === '平仓P01') {
@@ -1739,11 +1740,12 @@
     // 移除权限检查，所有对象都可以显示悬停信息
 
     const type = obj.userData?.type;
-    if (type === '筒仓' || type === '星仓') {
+    // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+    if (type === '筒仓' || type === '星仓' || type === '未知类型') {
       const cap = obj.userData?.最大容量_t || '-';
       const current = obj.userData?.当前储量_t || '0';
       const materials = obj.userData?.物料详情 || [];
-      const label = type === '星仓' ? '★星仓' : '筒仓';
+      const label = type === '星仓' ? '★星仓' : (type === '未知类型' ? '未知类型' : '筒仓');
       
       let materialInfo = '';
       if (materials.length > 0) {
@@ -1970,7 +1972,8 @@ function setStackColor(obj, color) {
     if (!obj) return;
 
     const type = obj.userData?.type;
-    const isCylindricalSilo = type === '筒仓';
+    // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+    const isCylindricalSilo = type === '筒仓' || type === '未知类型';
     const isStarSilo = type === '星仓';
     const isSilo = isCylindricalSilo || isStarSilo;
     const hasMaterialData = obj.userData?.hasMaterialData === true;
@@ -1989,7 +1992,9 @@ function setStackColor(obj, color) {
 
     if (isSilo) {
       // 为筒仓/星仓设置颜色 - 同步主体与线框材质
-      const isClickable = hasMaterialData; // 有物料数据的筒仓可以点击
+      // 判断是否可点击：有编号即可点击（不依赖物料数据），兼容 type: "未知类型" 的情况
+      const hasNumber = obj.userData?.编号 && obj.userData?.编号 !== '未分配';
+      const isClickable = hasNumber; // 有编号的筒仓可以点击，即使没有物料数据
       
       obj.children.forEach(child => {
         if (!child.material) return;
@@ -2001,8 +2006,9 @@ function setStackColor(obj, color) {
           child.material.color.set(targetColor);
         } else if (child.material.type === 'MeshStandardMaterial') {
           if (isRoof) {
-            // 屋顶颜色逻辑：可点击的为绿色，不可点击的为深灰色
-            const roofColor = isClickable ? '#11B96F' : 0xd7d7d7;
+            // 屋顶颜色逻辑：未知类型保持灰色，其他可点击的为绿色，不可点击的为深灰色
+            const isUnknownType = obj.userData?.type === '未知类型';
+            const roofColor = isUnknownType ? 0xd7d7d7 : (isClickable ? '#11B96F' : 0xd7d7d7);
             child.material.color.set(roofColor);
           } else {
             // 非屋顶部分使用目标颜色
@@ -2022,7 +2028,8 @@ function getStackBaseColor(obj) {
     const type = obj?.userData?.type;
     const owner = obj?.userData?.owner;
     const showCompanyColor = obj?.userData?.hasMaterialData === true;
-    const isCylindricalSilo = type === '筒仓';
+    // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+    const isCylindricalSilo = type === '筒仓' || type === '未知类型';
     const isStarSilo = type === '星仓';
     const hasNumber = obj?.userData?.编号 && obj?.userData?.编号 !== '未分配';
 
@@ -2100,8 +2107,10 @@ function getSiloSelectedColor(obj) {
     selected.getWorldPosition(wp);
     const ud = selected.userData || {};
 
-    if (ud.type === '筒仓' || ud.type === '星仓') {
-      const typeLabel = ud.type === '星仓' ? '★星仓详情' : '筒仓详情';
+    // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+    if (ud.type === '筒仓' || ud.type === '星仓' || ud.type === '未知类型') {
+      // 未知类型只显示编号，不显示"未知类型详情"
+      const typeLabel = ud.type === '星仓' ? '★星仓详情' : (ud.type === '未知类型' ? '' : '筒仓详情');
       const maxCapacity = ud.type === '星仓' ? '1250吨' : '5000吨';
       const materials = ud.物料详情 || [];
       
@@ -2133,7 +2142,7 @@ function getSiloSelectedColor(obj) {
       
       detailPanel.innerHTML = `
         <div style="font-weight:bold;font-size:18px;color:#000000;margin-bottom:8px;">明珠仓</div>
-        <div style="font-weight:600;margin-bottom:6px;">${typeLabel} ${ud.编号 || '#' + ud.id}</div>
+        <div style="font-weight:600;margin-bottom:6px;">${typeLabel}${typeLabel ? ' ' : ''}${ud.编号 || '#' + ud.id}</div>
         ${ud.特殊标识 ? `<div style="color: #FFD700; font-weight: bold; text-align: center; margin-bottom: 6px;">${ud.特殊标识}</div>` : ''}
         <div>高度: 53.8米</div>
         <div>直径: 14.5米</div>
@@ -2270,7 +2279,8 @@ function getSiloSelectedColor(obj) {
       if (hovered !== selected) {
         const hoveredType = hovered.userData?.type;
         let hoverColor;
-        if (hoveredType === '筒仓' || hoveredType === '星仓') {
+        // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+        if (hoveredType === '筒仓' || hoveredType === '星仓' || hoveredType === '未知类型') {
           hoverColor = getSiloHoverColor(hovered);
         } else if (hoveredType === '地磅') {
           hoverColor = lineColors.weighbridgeHover;
@@ -2308,7 +2318,8 @@ function getSiloSelectedColor(obj) {
     selected = hovered;
     const selectedType = selected.userData?.type;
     let selectedColor;
-    if (selectedType === '筒仓' || selectedType === '星仓') {
+    // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+    if (selectedType === '筒仓' || selectedType === '星仓' || selectedType === '未知类型') {
       selectedColor = getSiloSelectedColor(selected);
     } else if (selectedType === '地磅') {
       selectedColor = lineColors.weighbridgeSelected;
@@ -2378,7 +2389,8 @@ function getSiloSelectedColor(obj) {
     const id = selected.userData?.id;
     const type = selected.userData?.type || '平仓P01';
     let feeType;
-    if (type === '筒仓' || type === '星仓') {
+    // 兼容 type: "未知类型" 的情况，将其视为筒仓处理
+    if (type === '筒仓' || type === '星仓' || type === '未知类型') {
       feeType = '筒仓仓储费用';
     } else if (type === '地磅') {
       feeType = '地磅使用费用';
@@ -2395,8 +2407,8 @@ function getSiloSelectedColor(obj) {
     const userData = selected.userData;
     const type = userData?.type;
     
-    // 只有筒仓和星仓才有监控功能
-    if (type === '筒仓' || type === '星仓') {
+    // 只有筒仓和星仓才有监控功能，兼容 type: "未知类型" 的情况
+    if (type === '筒仓' || type === '星仓' || type === '未知类型') {
       try {
         // 获取最新的API数据
         const apiData = await fetchAllSilosFromAPI();
@@ -3100,6 +3112,9 @@ function getSiloSelectedColor(obj) {
     const activeMaterials = Array.isArray(materialDetails)
     ? materialDetails.filter(m => Number.isFinite(toNumber(m?.amount)) && Math.abs(toNumber(m.amount)) > 1e-6): [];
     const hasMaterialData = activeMaterials.length > 0;
+    
+    // 兼容 type: "未知类型" 的情况：即使没有物料数据，只要有编号就应该可点击
+    // 这里 hasMaterialData 保持原意（是否有物料数据），但筒仓的可点击性由编号决定
 
 
     // 只有有物料数据时才传递物料详情，否则传递空数组
@@ -3164,6 +3179,17 @@ function getSiloSelectedColor(obj) {
     } else {
       // 有编号但无物料数据的筒仓使用灰色
       setStackColor(group, emptySiloColor);
+    }
+    
+    // 确保屋顶颜色正确设置：有编号的筒仓屋顶应该是绿色（可点击状态），但未知类型保持灰色
+    const hasNumber = group.userData?.编号 && group.userData?.编号 !== '未分配';
+    const isUnknownType = group.userData?.type === '未知类型';
+    if (hasNumber && addDetails && !isUnknownType) {
+      group.children.forEach(child => {
+        if (child.userData?.isRoof === true && child.material && child.material.type === 'MeshStandardMaterial') {
+          child.material.color.set('#11B96F'); // 绿色，表示可点击
+        }
+      });
     }
 
     return group;
