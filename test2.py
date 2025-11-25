@@ -3,6 +3,7 @@ import pyautogui
 import pyperclip
 import random
 import time
+from typing import List
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import uvicorn
@@ -13,18 +14,19 @@ task_lock = asyncio.Lock()
 class TaskRequest(BaseModel):
     chatName: str
     message: str
+    mentions: List[str] = []
 
 @app.post("/run_task")
 async def run_task_api(task: TaskRequest):
     async with task_lock:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, run_task, task.chatName, task.message)
+        await loop.run_in_executor(None, run_task, task.chatName, task.message, task.mentions)
         # 等待一会儿确保任务完成
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
     return {"status": "success"}
 
 
-def run_task(chatName: str, message: str):
+def run_task(chatName: str, message: str, mentions: List[str]):
     screenWidth, screenHeight = pyautogui.size()
 
     # 目标范围是（160, 40）到（360, 60）
@@ -43,15 +45,37 @@ def run_task(chatName: str, message: str):
     pyautogui.press('enter')
     pyautogui.sleep(random.uniform(0.2, 0.5))
     pyautogui.press('enter')
+    pyautogui.sleep(random.uniform(0.2, 0.5))
 
     pyautogui.sleep(random.uniform(1, 2))
     pyperclip.copy(message)
     time.sleep(random.uniform(0.5, 1))
     pyautogui.hotkey('ctrl', 'v')
+    time.sleep(random.uniform(0.5, 1))
 
-    time.sleep(random.uniform(1, 5))
+    confirm_mentions(mentions)
+
+    time.sleep(random.uniform(0.8, 1.5))
     pyautogui.press('enter')
+    pyautogui.sleep(random.uniform(0.5, 1.2))
 
+
+def confirm_mentions(mentions: List[str]):
+    """依次输入@并回车确认每位成员，自动跳过重复名字且通过粘贴完成输入"""
+    seen = set()
+    for name in mentions:
+        key = name.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        pyperclip.copy(key)
+        pyautogui.write(" ", interval=random.uniform(0.05, 0.1))
+        pyautogui.write("@", interval=random.uniform(0.05, 0.1))
+        pyautogui.sleep(random.uniform(0.1, 0.2))
+        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.sleep(random.uniform(0.2, 0.5))
+        pyautogui.press('enter')
+        pyautogui.sleep(random.uniform(0.3, 0.7))
 
 
 # 缓慢且随机地移动鼠标到目标区域内的随机点，保证首步也平滑
