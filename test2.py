@@ -1,3 +1,4 @@
+import asyncio
 import pyautogui
 import pyperclip
 import random
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI()
+task_lock = asyncio.Lock()
 
 class TaskRequest(BaseModel):
     chatName: str
@@ -14,21 +16,23 @@ class TaskRequest(BaseModel):
 
 @app.post("/run_task")
 async def run_task_api(task: TaskRequest):
-    run_task(task.chatName, task.message)
-    # sleep 一会儿确保任务完成
-    time.sleep(10)
+    async with task_lock:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, run_task, task.chatName, task.message)
+        # 等待一会儿确保任务完成
+        await asyncio.sleep(10)
     return {"status": "success"}
 
 
 def run_task(chatName: str, message: str):
     screenWidth, screenHeight = pyautogui.size()
-    currentMouseX, currentMouseY = pyautogui.position()
 
     # 目标范围是（160, 40）到（360, 60）
     target_x = random.randint(86, 235)
     target_y = random.randint(26, 45)
 
     pyautogui.sleep(10)
+    currentMouseX, currentMouseY = pyautogui.position()
 
     move_mouse_slowly_to_target(currentMouseX, currentMouseY, target_x, target_y, screenWidth, screenHeight)
     pyautogui.click()
