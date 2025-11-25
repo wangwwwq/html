@@ -3194,6 +3194,107 @@ function getSiloSelectedColor(obj) {
     return vehicleGroup;
   }
 
+  // 作业人构建函数
+  function buildWorker() {
+    const workerGroup = new THREE.Group();
+    
+    // 身体
+    const bodyGeometry = new THREE.BoxGeometry(0.6, 1.2, 0.4);
+    const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.set(0, 0.6, 0);
+    workerGroup.add(body);
+    
+    // 头部
+    const headGeometry = new THREE.SphereGeometry(0.25, 16, 16);
+    const headMaterial = new THREE.MeshLambertMaterial({ color: 0xFFDBB3 });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.set(0, 1.45, 0);
+    workerGroup.add(head);
+    
+    // 安全帽
+    const helmetGeometry = new THREE.CylinderGeometry(0.28, 0.28, 0.15, 16);
+    const helmetMaterial = new THREE.MeshLambertMaterial({ color: 0xFFD700 });
+    const helmet = new THREE.Mesh(helmetGeometry, helmetMaterial);
+    helmet.position.set(0, 1.55, 0);
+    helmet.rotation.x = Math.PI / 2;
+    workerGroup.add(helmet);
+    
+    // 左臂
+    const leftArmGeometry = new THREE.BoxGeometry(0.2, 0.6, 0.2);
+    const armMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
+    const leftArm = new THREE.Mesh(leftArmGeometry, armMaterial);
+    leftArm.position.set(-0.4, 0.7, 0);
+    workerGroup.add(leftArm);
+    
+    // 右臂
+    const rightArm = new THREE.Mesh(leftArmGeometry, armMaterial);
+    rightArm.position.set(0.4, 0.7, 0);
+    workerGroup.add(rightArm);
+    
+    // 左腿
+    const leftLegGeometry = new THREE.BoxGeometry(0.25, 0.7, 0.25);
+    const legMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
+    const leftLeg = new THREE.Mesh(leftLegGeometry, legMaterial);
+    leftLeg.position.set(-0.15, -0.35, 0);
+    workerGroup.add(leftLeg);
+    
+    // 右腿
+    const rightLeg = new THREE.Mesh(leftLegGeometry, legMaterial);
+    rightLeg.position.set(0.15, -0.35, 0);
+    workerGroup.add(rightLeg);
+    
+    return workerGroup;
+  }
+
+  // 作业车构建函数（小型叉车）
+  function buildWorkVehicle() {
+    const vehicleGroup = new THREE.Group();
+    
+    // 车身主体
+    const bodyGeometry = new THREE.BoxGeometry(3, 1.2, 1.5);
+    const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xFF6B35 });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.set(0, 0.6, 0);
+    vehicleGroup.add(body);
+    
+    // 驾驶室
+    const cabGeometry = new THREE.BoxGeometry(1.2, 1.5, 1.2);
+    const cabMaterial = new THREE.MeshLambertMaterial({ color: 0xFF4500 });
+    const cab = new THREE.Mesh(cabGeometry, cabMaterial);
+    cab.position.set(-0.6, 1.05, 0);
+    vehicleGroup.add(cab);
+    
+    // 货叉（前方）
+    const forkGeometry = new THREE.BoxGeometry(0.2, 0.3, 1.5);
+    const forkMaterial = new THREE.MeshLambertMaterial({ color: 0xC0C0C0 });
+    const fork1 = new THREE.Mesh(forkGeometry, forkMaterial);
+    fork1.position.set(1.6, 0.3, -0.3);
+    vehicleGroup.add(fork1);
+    
+    const fork2 = new THREE.Mesh(forkGeometry, forkMaterial);
+    fork2.position.set(1.6, 0.3, 0.3);
+    vehicleGroup.add(fork2);
+    
+    // 车轮
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 12);
+    const wheelMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
+    
+    const wheelPositions = [
+      [-0.8, 0.3, -0.7], [-0.8, 0.3, 0.7], // 后轮
+      [0.8, 0.3, -0.7], [0.8, 0.3, 0.7]    // 前轮
+    ];
+    
+    wheelPositions.forEach(pos => {
+      const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+      wheel.position.set(pos[0], pos[1], pos[2]);
+      wheel.rotation.z = Math.PI / 2;
+      vehicleGroup.add(wheel);
+    });
+    
+    return vehicleGroup;
+  }
+
   // 地磅构建函数
   function buildWeighbridge(length = 50, width = 58, height = 0.3) {
     const group = new THREE.Group();
@@ -4408,17 +4509,55 @@ function getSiloSelectedColor(obj) {
 
     // 创建#A仓库（主仓库）- 保持原始位置不变
     const warehouses = [];
+    let mainWarehouseCxForWorker, mainWarehouseCzForWorker; // 保存#A仓库的位置
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const warehouseIndex = r * cols + c;
         const cz = rowZs[r];
         const cx = leftStart + c * (wL + gap);
         
+        // 保存#A仓库的位置
+        mainWarehouseCxForWorker = cx;
+        mainWarehouseCzForWorker = cz;
+        
         const wh = buildWarehouse({length: wL, width: wW, height: wH, roofHeight: rH}, cx, cz, warehouseIndex);
         warehouses.push(wh);
         const stkConf = await fetchWarehouseStackConfig(warehouseIndex);
         await populateStacks(wh, {length: wL, width: wW, height: wH}, stkConf, warehouseIndex);
       }
+    }
+
+    // 为#A仓库添加作业人和作业车
+    if (mainWarehouseCxForWorker !== undefined && mainWarehouseCzForWorker !== undefined) {
+      const worker = buildWorker();
+      const workVehicle = buildWorkVehicle();
+      
+      const workerX = mainWarehouseCxForWorker;
+      const workerZ = mainWarehouseCzForWorker + (wW / 2) + 3 - 7; // 在仓库前方3米，往北移动20米
+      worker.position.set(workerX, 0, workerZ);
+      
+      const vehicleX = mainWarehouseCxForWorker + 5; // 作业人右侧
+      const vehicleZ = mainWarehouseCzForWorker + (wW / 2) + 3 - 7; // 与作业人相同的Z位置，往北移动20米
+      workVehicle.position.set(vehicleX, 0, vehicleZ);
+      
+      // 应用缩放比例，并放大一倍
+      const workerScale = 2;
+      worker.scale.set(workerScale, workerScale, workerScale);
+      worker.userData = {
+        type: '作业人',
+        所属库区: '#A',
+        位置: `X:${worker.position.x.toFixed(1)}, Z:${worker.position.z.toFixed(1)}`
+      };
+      scene.add(worker);
+      
+      const vehicleScale = 2;
+      workVehicle.scale.set(vehicleScale, vehicleScale, vehicleScale);
+      workVehicle.userData = {
+        type: '作业车',
+        所属库区: '#A',
+        位置: `X:${workVehicle.position.x.toFixed(1)}, Z:${workVehicle.position.z.toFixed(1)}`
+      };
+      scene.add(workVehicle);
     }
 
     // 独立的平仓配置 - 每个平仓都是完全独立的
@@ -4524,6 +4663,107 @@ function getSiloSelectedColor(obj) {
       }
       
       // 不添加额外的标签，使用模型自带的 #Y、#X、#Z 标签
+      
+      // 为每个平仓添加作业人和作业车
+      // P01、P02、P03平仓：为每个堆垛创建作业人和作业车
+      if (warehouseName === 'P01' || warehouseName === 'P02' || warehouseName === 'P03') {
+        // 获取堆垛配置以计算堆垛位置
+        let stackConfig;
+        try {
+          stackConfig = await fetchWarehouseStackConfig(flatWarehouseIndex);
+        } catch (error) {
+          stackConfig = {
+            stackSize: {length: 40, width: 18, height: 8},
+            spacing: 5,
+            margin: 5
+          };
+        }
+        
+        const stackWidth = stackConfig.stackSize.width; // 堆垛宽度（18米）
+        const stackSpacing = stackWidth * 1.2; // 堆垛间距
+        const scale = config.scale || 1;
+        
+        // 3个堆垛的位置：从南到北
+        const stackPositions = [
+          { z: flatCz - stackSpacing * scale, number: warehouseName === 'P01' ? '5-1' : (warehouseName === 'P02' ? '4-1' : '3-1') }, // 南侧堆垛
+          { z: flatCz, number: warehouseName === 'P01' ? '5-2' : (warehouseName === 'P02' ? '4-2' : '3-2') }, // 中心堆垛
+          { z: flatCz + stackSpacing * scale, number: warehouseName === 'P01' ? '5-3' : (warehouseName === 'P02' ? '4-3' : '3-3') }  // 北侧堆垛
+        ];
+        
+        // 为每个堆垛创建作业人和作业车
+        for (const stackPos of stackPositions) {
+          const worker = buildWorker();
+          const workVehicle = buildWorkVehicle();
+          
+          // 判断是否需要往南移动7个单位（5-2、5-3、4-2、4-3、3-2、3-3）
+          const shouldMoveSouth = ['5-2', '5-3', '4-2', '4-3', '3-2', '3-3'].includes(stackPos.number);
+          const southOffset = shouldMoveSouth ? -10 : 0;
+          
+          // 作业人位置：东侧，对应堆垛的Z位置，往西移动7个单位
+          const workerX = flatCx + (wL / 2) * scale + 3 - 7;
+          const workerZ = stackPos.z + southOffset;
+          worker.position.set(workerX, 0, workerZ);
+          worker.rotation.y = Math.PI / 2; // 旋转90度
+          
+          // 作业车位置：东侧，在作业人上方（旋转后），往西移动7个单位
+          const vehicleX = flatCx + (wL / 2) * scale + 3 - 7;
+          const vehicleZ = stackPos.z + 5 * scale + southOffset; // 作业人上方（旋转后），考虑缩放
+          workVehicle.position.set(vehicleX, 0, vehicleZ);
+          workVehicle.rotation.y = Math.PI / 2; // 旋转90度
+          
+          // 应用与平仓相同的缩放比例，并放大一倍
+          const workerScale = scale * 2;
+          worker.scale.set(workerScale, workerScale, workerScale);
+          worker.userData = {
+            type: '作业人',
+            所属库区: warehouseName,
+            所属堆垛: stackPos.number,
+            位置: `X:${worker.position.x.toFixed(1)}, Z:${worker.position.z.toFixed(1)}`
+          };
+          scene.add(worker);
+          
+          const vehicleScale = scale * 2;
+          workVehicle.scale.set(vehicleScale, vehicleScale, vehicleScale);
+          workVehicle.userData = {
+            type: '作业车',
+            所属库区: warehouseName,
+            所属堆垛: stackPos.number,
+            位置: `X:${workVehicle.position.x.toFixed(1)}, Z:${workVehicle.position.z.toFixed(1)}`
+          };
+          scene.add(workVehicle);
+        }
+      } else {
+        // 其他平仓：保持原有位置（仓库前方），单个作业人和作业车
+        const worker = buildWorker();
+        const workVehicle = buildWorkVehicle();
+        
+        const workerX = flatCx;
+        const workerZ = flatCz + (wW / 2) * (config.scale || 1) + 3 - 7; // 在仓库前方3米，往北移动20米，考虑缩放
+        worker.position.set(workerX, 0, workerZ);
+        
+        const vehicleX = flatCx + 5 * (config.scale || 1); // 作业人右侧，考虑缩放
+        const vehicleZ = flatCz + (wW / 2) * (config.scale || 1) + 3 - 7; // 与作业人相同的Z位置，往北移动20米，考虑缩放
+        workVehicle.position.set(vehicleX, 0, vehicleZ);
+        
+        // 应用与平仓相同的缩放比例，并放大一倍
+        const workerScale = (config.scale || 1) * 2;
+        worker.scale.set(workerScale, workerScale, workerScale);
+        worker.userData = {
+          type: '作业人',
+          所属库区: warehouseName,
+          位置: `X:${worker.position.x.toFixed(1)}, Z:${worker.position.z.toFixed(1)}`
+        };
+        scene.add(worker);
+        
+        const vehicleScale = (config.scale || 1) * 2;
+        workVehicle.scale.set(vehicleScale, vehicleScale, vehicleScale);
+        workVehicle.userData = {
+          type: '作业车',
+          所属库区: warehouseName,
+          位置: `X:${workVehicle.position.x.toFixed(1)}, Z:${workVehicle.position.z.toFixed(1)}`
+        };
+        scene.add(workVehicle);
+      }
       
       flatWarehouses.push(flatWarehouse);
     }
