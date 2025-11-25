@@ -25,8 +25,8 @@ def run_task(chatName: str, message: str):
     currentMouseX, currentMouseY = pyautogui.position()
 
     # 目标范围是（160, 40）到（360, 60）
-    target_x = random.randint(160, 360)
-    target_y = random.randint(40, 60)
+    target_x = random.randint(86, 235)
+    target_y = random.randint(26, 45)
 
     pyautogui.sleep(10)
 
@@ -50,10 +50,13 @@ def run_task(chatName: str, message: str):
 
 
 
-# 缓慢且随机地移动鼠标到目标区域内的随机点
+# 缓慢且随机地移动鼠标到目标区域内的随机点，保证首步也平滑
 def move_mouse_slowly_to_target(start_x, start_y, end_x, end_y, screenWidth, screenHeight):
     x, y = start_x, start_y
-    while not (160 <= x <= 360 and 40 <= y <= 60):
+    tolerance = 3  # 接近目标坐标的容忍范围，避免最后一步突然跳动
+    max_steps = 200
+    steps = 0
+    while (abs(x - end_x) > tolerance or abs(y - end_y) > tolerance) and steps < max_steps:
         dx = end_x - x
         dy = end_y - y
         # 增大每次移动的最大步长，提升速度
@@ -72,6 +75,7 @@ def move_mouse_slowly_to_target(start_x, start_y, end_x, end_y, screenWidth, scr
         x = max(0, min(screenWidth - 1, x))
         y = max(0, min(screenHeight - 1, y))
         pyautogui.moveTo(x, y)
+        steps += 1
         # 缩短每步的等待时间，仍保留人手感
         time.sleep(random.uniform(0.005, 0.02))
     # 最后确保在目标区域内
