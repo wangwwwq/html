@@ -1,41 +1,138 @@
 import asyncio
+import hashlib
+import json
+import logging
+from logging.handlers import TimedRotatingFileHandler
 import pyautogui
 import pyperclip
 import random
 import time
 from typing import List
-from fastapi import FastAPI, Request
+from pathlib import Path
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI()
 task_lock = asyncio.Lock()
 
-class TaskRequest(BaseModel):
+# 固定密钥仅用于服务端验签，需妥善保管，避免硬编码泄露
+SECRET_KEY = "xT7!rP9^Lq2@aZ5#sF8$yM3%vB1*eW6&Dn4^jC0$hR9!tK"
+logger = logging.getLogger("wechat_task")
+if not logger.handlers:
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_format = "[%(asctime)s] [%(levelname)s] %(message)s"
+    formatter = logging.Formatter(log_format, "%Y-%m-%d %H:%M:%S")
+
+    file_handler = TimedRotatingFileHandler(
+        log_dir / "wechat_task.log",
+        when="midnight",
+        backupCount=14,
+        encoding="utf-8",
+        utc=False,
+    )
+    file_handler.suffix = "%Y-%m-%d.log"
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    logger.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+# 请求模型：增加 timestamp 与 sign（mentions 不参与验签）
+class SecureTaskRequest(BaseModel):
     chatName: str
     message: str
     mentions: List[str] = []
+    timestamp: int
+    sign: str
+
+
+def _normalize_param_value(value):
+    """把列表/字典转成稳定字符串，避免不同客户端序列化差异"""
+    if isinstance(value, list):
+        return ",".join(map(str, value))
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return str(value)
+
+
+def make_sign(params):
+    """按 key 排序后拼接字符串 + 秘钥，最后计算 SHA256 大写摘要（跳过 sign 与 mentions）"""
+    sorted_items = sorted(
+        (k, _normalize_param_value(v))
+        for k, v in params.items()
+        if k not in {"sign", "mentions"}
+    )
+    base_str = "&".join(f"{k}={v}" for k, v in sorted_items)
+    base_str += f"&key={SECRET_KEY}"
+    logger.info("签名原文: %s", base_str)
+    return hashlib.sha256(base_str.encode("utf-8")).hexdigest().upper()
+
+
+def verify_sign(params):
+    """校验时间戳防重放，并核对签名是否一致"""
+    try:
+        ts = int(params.get("timestamp", 0))
+    except (TypeError, ValueError):
+        logger.warning("timestamp 解析失败: %s", params.get("timestamp"))
+        return False
+    now = int(time.time())
+    if abs(now - ts) > 300:
+        logger.warning("请求超时: ts=%s now=%s", ts, now)
+        return False
+    sign_val = params.get("sign")
+    if not sign_val:
+        logger.warning("缺少 sign 字段")
+        return False
+    expected = make_sign(params)
+    if sign_val != expected:
+        logger.warning("签名不匹配: 期望=%s 实际=%s", expected, sign_val)
+        logger.warning("参数详情: %s", json.dumps(params, ensure_ascii=False))
+        return False
+    return True
 
 @app.post("/run_task")
-async def run_task_api(task: TaskRequest):
+async def run_task_api(task: SecureTaskRequest):
+    payload = task.model_dump()
+    if not verify_sign(payload):
+        return JSONResponse(
+            status_code=401,
+            content={"code": 401, "msg": "验签失败或请求超时"},
+        )
+    logger.info(
+        "验签通过，收到任务 chatName=%s mentions=%d msg_len=%d",
+        task.chatName,
+        len(task.mentions),
+        len(task.message),
+    )
     async with task_lock:
         loop = asyncio.get_running_loop()
+        logger.info("进入执行队列，等待任务锁释放")
         await loop.run_in_executor(None, run_task, task.chatName, task.message, task.mentions)
         # 等待一会儿确保任务完成
         await asyncio.sleep(5)
-    return {"status": "success"}
+    return {"code": 200, "msg": "success"}
 
 
 def run_task(chatName: str, message: str, mentions: List[str]):
+    logger.info("开始执行任务 chatName=%s mention_count=%d", chatName, len(mentions))
     screenWidth, screenHeight = pyautogui.size()
+    logger.info("当前屏幕分辨率 %sx%s", screenWidth, screenHeight)
 
     # 目标范围是（160, 40）到（360, 60）
     target_x = random.randint(86, 235)
     target_y = random.randint(26, 45)
+    logger.info("目标输入区域随机坐标: (%s, %s)", target_x, target_y)
 
     # 初始停顿让界面充分加载，避免误触
     pyautogui.sleep(10)
     currentMouseX, currentMouseY = pyautogui.position()
+    logger.info("当前鼠标位置: (%s, %s)", currentMouseX, currentMouseY)
 
     # 人工缓慢移动到输入框附近再点击
     move_mouse_slowly_to_target(currentMouseX, currentMouseY, target_x, target_y, screenWidth, screenHeight)
@@ -64,14 +161,23 @@ def run_task(chatName: str, message: str, mentions: List[str]):
     time.sleep(random.uniform(0.8, 1.5))
     pyautogui.press('enter')
     pyautogui.sleep(random.uniform(0.5, 1.2))
+    logger.info("任务执行完成 chatName=%s", chatName)
 
 
 def confirm_mentions(mentions: List[str]):
     """依次输入@并回车确认每位成员，自动跳过重复名字且通过粘贴完成输入"""
     seen = set()
+    if not mentions:
+        logger.info("本次任务无 @ 名单，直接跳过")
+        return
+    logger.info("开始处理 @ 名单，总计 %d 人", len(mentions))
     for name in mentions:
         key = name.strip()
         if not key or key in seen:
+            if not key:
+                logger.debug("检测到空昵称，跳过")
+            else:
+                logger.debug("检测到重复昵称 %s，跳过", key)
             continue
         seen.add(key)
         # 每个人名之间加随机停顿（1~2.5秒），模拟观察名单的行为
