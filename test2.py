@@ -3,11 +3,12 @@ import hashlib
 import json
 import logging
 from logging.handlers import TimedRotatingFileHandler
+import contextlib
 import pyautogui
 import pyperclip
 import random
 import time
-from typing import List
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -15,7 +16,8 @@ from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI()
-task_lock = asyncio.Lock()
+task_queue: asyncio.Queue = asyncio.Queue()
+worker_task: Optional[asyncio.Task] = None
 
 # 固定密钥仅用于服务端验签，需妥善保管，避免硬编码泄露
 SECRET_KEY = "xT7!rP9^Lq2@aZ5#sF8$yM3%vB1*eW6&Dn4^jC0$hR9!tK"
@@ -43,6 +45,12 @@ if not logger.handlers:
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
+
+def build_response(status: int = 200, code: str = "200", msg: str = "SUCCESS"):
+    """统一响应结构，便于客户端解析"""
+    return {"status": status, "code": str(code), "msg": msg}
+
+
 # 请求模型：增加 timestamp 与 sign（mentions 不参与验签）
 class SecureTaskRequest(BaseModel):
     chatName: str
@@ -50,6 +58,7 @@ class SecureTaskRequest(BaseModel):
     mentions: List[str] = []
     timestamp: int
     sign: str
+    sourceApp: str
 
 
 def _normalize_param_value(value):
@@ -96,31 +105,88 @@ def verify_sign(params):
         return False
     return True
 
+@app.on_event("startup")
+async def startup_event():
+    """启动后台协程，保证任务按 FIFO 队列消费"""
+    global worker_task
+    if worker_task is None or worker_task.done():
+        worker_task = asyncio.create_task(task_worker())
+        logger.info("任务处理协程已启动，等待队列任务")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """优雅关闭后台协程，确保资源释放"""
+    global worker_task
+    if worker_task:
+        worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker_task
+        worker_task = None
+        logger.info("任务处理协程已关闭")
+
+
 @app.post("/run_task")
 async def run_task_api(task: SecureTaskRequest):
     payload = task.model_dump()
     if not verify_sign(payload):
+        # 按约定始终返回 200，具体状态通过自定义字段告知调用方
         return JSONResponse(
-            status_code=401,
-            content={"code": 401, "msg": "验签失败或请求超时"},
+            status_code=200,
+            content=build_response(status=401, code="401", msg="验签失败或请求超时"),
         )
     logger.info(
-        "验签通过，收到任务 chatName=%s mentions=%d msg_len=%d",
+        "验签通过，收到任务 chatName=%s mentions=%d msg_len=%d sourceApp=%s",
         task.chatName,
         len(task.mentions),
         len(task.message),
+        task.sourceApp,
     )
-    async with task_lock:
-        loop = asyncio.get_running_loop()
-        logger.info("进入执行队列，等待任务锁释放")
-        await loop.run_in_executor(None, run_task, task.chatName, task.message, task.mentions)
-        # 等待一会儿确保任务完成
-        await asyncio.sleep(5)
-    return {"code": 200, "msg": "success"}
+    await task_queue.put(
+        {
+            "chatName": task.chatName,
+            "message": task.message,
+            "mentions": task.mentions,
+            "timestamp": task.timestamp,
+            "sourceApp": task.sourceApp,
+        }
+    )
+    queue_size = task_queue.qsize()
+    logger.info("任务入队完成 chatName=%s 当前排队=%d", task.chatName, queue_size)
+    return build_response(msg=f"任务已入队，前方队列剩余 {max(queue_size - 1, 0)} 个")
 
 
-def run_task(chatName: str, message: str, mentions: List[str]):
-    logger.info("开始执行任务 chatName=%s mention_count=%d", chatName, len(mentions))
+async def task_worker():
+    """后台协程：保持先进先出顺序逐个执行任务"""
+    while True:
+        task_data: Dict[str, Any] = await task_queue.get()
+        chat_name = task_data["chatName"]
+        try:
+            loop = asyncio.get_running_loop()
+            logger.info("开始处理队首任务 chatName=%s 剩余队列=%d", chat_name, task_queue.qsize())
+            await loop.run_in_executor(
+                None,
+                run_task,
+                chat_name,
+                task_data["message"],
+                task_data["mentions"],
+                task_data.get("sourceApp", "unknown"),
+            )
+            await asyncio.sleep(5)
+            logger.info("任务完成 chatName=%s 当前等待=%d", chat_name, task_queue.qsize())
+        except Exception as exc:
+            logger.exception("任务执行失败 chatName=%s: %s", chat_name, exc)
+        finally:
+            task_queue.task_done()
+
+
+def run_task(chatName: str, message: str, mentions: List[str], sourceApp: str):
+    logger.info(
+        "开始执行任务 chatName=%s mention_count=%d sourceApp=%s",
+        chatName,
+        len(mentions),
+        sourceApp,
+    )
     screenWidth, screenHeight = pyautogui.size()
     logger.info("当前屏幕分辨率 %sx%s", screenWidth, screenHeight)
 
@@ -161,7 +227,7 @@ def run_task(chatName: str, message: str, mentions: List[str]):
     time.sleep(random.uniform(0.8, 1.5))
     pyautogui.press('enter')
     pyautogui.sleep(random.uniform(0.5, 1.2))
-    logger.info("任务执行完成 chatName=%s", chatName)
+    logger.info("任务执行完成 chatName=%s sourceApp=%s", chatName, sourceApp)
 
 
 def confirm_mentions(mentions: List[str]):
