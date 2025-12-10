@@ -132,11 +132,33 @@
       display: none;
       background: var(--panel-bg);
       color: var(--panel-fg);
-      padding: 10px 14px;
+      padding: 0;
       border-radius: 8px;
-      box-shadow: var(--panel-shadow);
-      min-width: 240px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      min-width: 320px;
+      max-width: 420px;
+      max-height: 75vh;
+      overflow-y: auto;
       font-size: 14px;
+      line-height: 1.5;
+    }
+    
+    #whPanel::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    #whPanel::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 3px;
+    }
+    
+    #whPanel::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+    
+    #whPanel::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
     }
 
     #actionBar {
@@ -666,12 +688,13 @@
 
   // 真实API接口配置
   const API_CONFIG = {
-     // BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
-    BASE_URL: 'https://open.circlelog.com', // 远程API服务
+     BASE_URL: 'http://127.0.0.1:8069', // 正式本地API服务`
+    // BASE_URL: 'https://open.circlelog.com', // 远程API服务
     PATH_PREFIX: '/iot-service',
     ENDPOINTS: {
       ALL_SILOS: '/api/order-driver/obtainTheSiloQinzhou',
-      ALL_WEIGHBRIDGES: '/api/order-driver/weighbridgeData' // 正式地磅数据接口
+      ALL_WEIGHBRIDGES: '/api/order-driver/weighbridgeData', // 正式地磅数据接口
+      WORK_DETAILS: '/api/order-driver/workDetails' // 作业详情接口
     }
   };
 
@@ -689,6 +712,11 @@
   let globalWeighbridgeData = null;
   let lastWeighbridgeFetchTime = 0;
   let ongoingWeighbridgeFetchPromise = null;
+
+  // 作业详情数据缓存
+  let globalWorkDetailsData = null;
+  let lastWorkDetailsFetchTime = 0;
+  let ongoingWorkDetailsFetchPromise = null;
 
   // 从真实API获取所有筒仓数据
   async function fetchAllSilosFromAPI() {
@@ -1034,6 +1062,132 @@
   
   // 暴露到全局作用域供调试使用
   window.forceRefreshWeighbridges = forceRefreshWeighbridges;
+
+  // 从API获取作业详情数据
+  async function fetchWorkDetailsFromAPI() {
+    const now = Date.now();
+    const CACHE_DURATION = 30000; // 30秒缓存
+    
+    // 如果有缓存且未过期，直接使用缓存
+    if (globalWorkDetailsData && (now - lastWorkDetailsFetchTime) < CACHE_DURATION) {
+      return globalWorkDetailsData;
+    }
+    
+    // 如果已经有请求在进行中，等待该请求完成
+    if (ongoingWorkDetailsFetchPromise) {
+      return await ongoingWorkDetailsFetchPromise;
+    }
+
+    // 创建新的请求Promise
+    ongoingWorkDetailsFetchPromise = performActualWorkDetailsFetch();
+    
+    try {
+      const result = await ongoingWorkDetailsFetchPromise;
+      return result;
+    } finally {
+      // 请求完成后清除Promise引用，允许后续请求
+      ongoingWorkDetailsFetchPromise = null;
+    }
+    
+    async function performActualWorkDetailsFetch() {
+      try {
+        const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.PATH_PREFIX}${API_CONFIG.ENDPOINTS.WORK_DETAILS}`;
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`作业详情API请求失败: ${response.status} ${response.statusText}`);
+        }
+
+        const apiResponse = await response.json();
+        
+        if (apiResponse.success && apiResponse.code === 200 && apiResponse.data) {
+          globalWorkDetailsData = apiResponse.data;
+          lastWorkDetailsFetchTime = now;
+          return apiResponse.data;
+        } else {
+          console.warn('作业详情API返回数据格式异常:', apiResponse);
+          return [];
+        }
+      } catch (error) {
+        console.error('获取作业详情数据失败:', error);
+        return [];
+      }
+    }
+  }
+
+  // 根据堆垛编号获取作业详情
+  function getWorkDetailsByStackNumber(stackNumber, workDetailsData) {
+    if (!workDetailsData || !Array.isArray(workDetailsData)) {
+      return null;
+    }
+    
+    // 如果stackNumber为null，返回null（没有堆垛编号的情况）
+    if (stackNumber === null || stackNumber === undefined) {
+      return null;
+    }
+    
+    // 查找匹配的作业详情（itemRoom是堆垛编号）
+    const details = workDetailsData.filter(item => item.itemRoom === stackNumber);
+    return details.length > 0 ? details : null;
+  }
+
+  // 根据作业详情控制作业人和作业车的显示
+  function applyWorkDetailsToWorkerAndVehicle(worker, workVehicle, stackNumber, workDetailsData) {
+    const details = getWorkDetailsByStackNumber(stackNumber, workDetailsData);
+    
+    if (!details || details.length === 0) {
+      // 没有作业详情，隐藏作业人和作业车
+      worker.visible = false;
+      workVehicle.visible = false;
+      return;
+    }
+    
+    // 合并所有匹配的作业详情
+    const allWorkers = [];
+    const allDevices = [];
+    const allDetails = [];
+    
+    details.forEach(detail => {
+      if (detail.itemWorker) {
+        // 如果有多个人，用逗号分隔
+        const workers = detail.itemWorker.split(',').map(w => w.trim()).filter(w => w);
+        allWorkers.push(...workers);
+      }
+      if (detail.itemDevice) {
+        allDevices.push(detail.itemDevice);
+      }
+      allDetails.push(detail);
+    });
+    
+    // 去重
+    const uniqueWorkers = [...new Set(allWorkers)];
+    const uniqueDevices = [...new Set(allDevices)];
+    
+    // 控制作业人显示：如果有itemWorker则显示，否则隐藏
+    worker.visible = uniqueWorkers.length > 0;
+    
+    // 控制作业车显示：如果有itemDevice则显示，否则隐藏
+    workVehicle.visible = uniqueDevices.length > 0;
+    
+    // 存储作业详情到userData
+    if (worker.userData) {
+      worker.userData.作业详情 = allDetails;
+      worker.userData.作业人员列表 = uniqueWorkers;
+      worker.userData.显示人员 = uniqueWorkers.length > 0 ? uniqueWorkers[0] : null; // 只显示第一个
+    }
+    
+    if (workVehicle.userData) {
+      workVehicle.userData.作业详情 = allDetails;
+      workVehicle.userData.作业设备列表 = uniqueDevices;
+    }
+  }
 
   // 停止自动刷新
   function stopAutoRefresh() {
@@ -2943,11 +3097,292 @@ function getSiloSelectedColor(obj) {
     
     updateDetailPanel();
     
-    // 检查选中的对象类型，只有仓库本身才显示仓库信息，堆垛不显示
+    // 检查选中的对象类型
     const isWarehouse = selectedType === '仓库';
+    const isStack = selectedType === '平仓'; // 堆垛类型
     const info = selected.userData?.whInfo;
     
-    if (info && isWarehouse) {
+    // 处理堆垛的点击 - 显示作业详情
+    if (isStack) {
+      const stackNumber = selected.userData?.编号 || selected.userData?.id || null;
+      
+      if (stackNumber) {
+        // 异步获取作业详情
+        fetchWorkDetailsFromAPI().then(workDetailsData => {
+          const details = getWorkDetailsByStackNumber(stackNumber, workDetailsData);
+          
+          if (details && details.length > 0) {
+            // 合并所有匹配的作业详情
+            const allWorkers = [];
+            const allDevices = [];
+            
+            details.forEach(detail => {
+              if (detail.itemWorker) {
+                // 如果有多个人，用逗号分隔
+                const workers = detail.itemWorker.split(',').map(w => w.trim()).filter(w => w);
+                allWorkers.push(...workers);
+              }
+              if (detail.itemDevice) {
+                allDevices.push(detail.itemDevice);
+              }
+            });
+            
+            // 去重
+            const uniqueWorkers = [...new Set(allWorkers)];
+            const uniqueDevices = [...new Set(allDevices)];
+            
+            // 判断作业状态颜色
+            const getStatusColor = (status) => {
+              if (status === '作业中') return '#10b981'; // 绿色
+              if (status === '已完成') return '#3b82f6'; // 蓝色
+              if (status === '已暂停') return '#f59e0b'; // 橙色
+              return '#6b7280'; // 灰色
+            };
+            
+            let html = `
+              <div style="
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 12px 16px;
+                margin: -10px -14px 16px -14px;
+                border-radius: 8px 8px 0 0;
+                font-size: 16px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              ">
+                <span style="font-size: 20px;">📦</span>
+                <span>堆垛作业详情</span>
+              </div>
+              
+              <div style="
+                background: #f8fafc;
+                border-left: 4px solid #667eea;
+                padding: 10px 12px;
+                margin-bottom: 16px;
+                border-radius: 4px;
+              ">
+                <div style="
+                  font-size: 18px;
+                  font-weight: 700;
+                  color: #1e293b;
+                  margin-bottom: 4px;
+                ">${stackNumber}</div>
+                <div style="font-size: 12px; color: #64748b;">堆垛编号</div>
+              </div>
+              
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                <div style="
+                  background: ${uniqueWorkers.length > 0 ? '#ecfdf5' : '#f1f5f9'};
+                  border: 1px solid ${uniqueWorkers.length > 0 ? '#10b981' : '#e2e8f0'};
+                  padding: 10px;
+                  border-radius: 6px;
+                ">
+                  <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">👷 作业人员</div>
+                  <div style="
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: ${uniqueWorkers.length > 0 ? '#059669' : '#94a3b8'};
+                    word-break: break-word;
+                  ">${uniqueWorkers.length > 0 ? uniqueWorkers.join('、') : '暂无'}</div>
+                </div>
+                
+                <div style="
+                  background: ${uniqueDevices.length > 0 ? '#eff6ff' : '#f1f5f9'};
+                  border: 1px solid ${uniqueDevices.length > 0 ? '#3b82f6' : '#e2e8f0'};
+                  padding: 10px;
+                  border-radius: 6px;
+                ">
+                  <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">🚛 作业设备</div>
+                  <div style="
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: ${uniqueDevices.length > 0 ? '#2563eb' : '#94a3b8'};
+                    word-break: break-word;
+                  ">${uniqueDevices.length > 0 ? uniqueDevices.join('、') : '暂无'}</div>
+                </div>
+              </div>
+            `;
+            
+            // 显示所有作业详情
+            if (details.length > 0) {
+              html += `<div style="
+                font-size: 13px;
+                font-weight: 600;
+                color: #475569;
+                margin-bottom: 12px;
+                padding-bottom: 8px;
+                border-bottom: 2px solid #e2e8f0;
+              ">作业记录 (${details.length}项)</div>`;
+              
+              details.forEach((detail, index) => {
+                const statusColor = getStatusColor(detail.itemWorkStatus);
+                html += `
+                  <div style="
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 8px;
+                    padding: 12px;
+                    margin-bottom: 12px;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+                    transition: all 0.2s;
+                  ">
+                    <div style="
+                      display: flex;
+                      align-items: center;
+                      justify-content: space-between;
+                      margin-bottom: 10px;
+                      padding-bottom: 8px;
+                      border-bottom: 1px solid #f1f5f9;
+                    ">
+                      <div style="
+                        font-size: 13px;
+                        font-weight: 700;
+                        color: #1e293b;
+                      ">📋 作业项 ${index + 1}</div>
+                      ${detail.itemWorkStatus ? `
+                        <div style="
+                          background: ${statusColor}15;
+                          color: ${statusColor};
+                          padding: 4px 10px;
+                          border-radius: 12px;
+                          font-size: 11px;
+                          font-weight: 600;
+                          border: 1px solid ${statusColor}40;
+                        ">${detail.itemWorkStatus}</div>
+                      ` : ''}
+                    </div>
+                    
+                    <div style="display: grid; gap: 6px;">
+                      ${detail.itemWorkTeam ? `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">👥</span>
+                          <div>
+                            <div style="font-size: 11px; color: #64748b;">作业班组</div>
+                            <div style="font-size: 13px; font-weight: 500; color: #1e293b;">${detail.itemWorkTeam}</div>
+                          </div>
+                        </div>
+                      ` : ''}
+                      
+                      ${detail.itemWorker ? `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">👷</span>
+                          <div>
+                            <div style="font-size: 11px; color: #64748b;">作业人员</div>
+                            <div style="font-size: 13px; font-weight: 500; color: #1e293b;">${detail.itemWorker}</div>
+                          </div>
+                        </div>
+                      ` : ''}
+                      
+                      ${detail.itemDevice ? `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">🚛</span>
+                          <div>
+                            <div style="font-size: 11px; color: #64748b;">作业设备</div>
+                            <div style="font-size: 13px; font-weight: 500; color: #1e293b;">${detail.itemDevice}</div>
+                          </div>
+                        </div>
+                      ` : ''}
+                      
+                      ${detail.itemBeginWorkTime ? `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">🕐</span>
+                          <div>
+                            <div style="font-size: 11px; color: #64748b;">开始时间</div>
+                            <div style="font-size: 13px; font-weight: 500; color: #1e293b;">${detail.itemBeginWorkTime}</div>
+                          </div>
+                        </div>
+                      ` : ''}
+                      
+                      ${detail.itemEndWorkTime ? `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">🕑</span>
+                          <div>
+                            <div style="font-size: 11px; color: #64748b;">结束时间</div>
+                            <div style="font-size: 13px; font-weight: 500; color: #1e293b;">${detail.itemEndWorkTime}</div>
+                          </div>
+                        </div>
+                      ` : ''}
+                    </div>
+                  </div>
+                `;
+              });
+            }
+            
+            html += `</div>`;
+            whPanel.innerHTML = html;
+            whPanel.style.display = 'block';
+            layoutInfoPanels();
+          } else {
+            // 没有作业详情，显示堆垛基本信息
+            whPanel.innerHTML = `
+              <div style="padding: 16px;">
+              <div style="
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 12px 16px;
+                margin: -16px -16px 16px -16px;
+                border-radius: 8px 8px 0 0;
+                font-size: 16px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              ">
+                <span style="font-size: 20px;">📦</span>
+                <span>堆垛信息</span>
+              </div>
+              
+              <div style="
+                background: #f8fafc;
+                border-left: 4px solid #667eea;
+                padding: 10px 12px;
+                margin-bottom: 16px;
+                border-radius: 4px;
+              ">
+                <div style="
+                  font-size: 18px;
+                  font-weight: 700;
+                  color: #1e293b;
+                  margin-bottom: 4px;
+                ">${stackNumber}</div>
+                <div style="font-size: 12px; color: #64748b;">堆垛编号</div>
+              </div>
+              
+              <div style="
+                text-align: center;
+                padding: 24px 16px;
+                background: #f8fafc;
+                border-radius: 8px;
+                border: 2px dashed #cbd5e1;
+              ">
+                <div style="font-size: 48px; margin-bottom: 12px;">📭</div>
+                <div style="
+                  font-size: 14px;
+                  color: #64748b;
+                  font-weight: 500;
+                ">暂无作业信息</div>
+                <div style="
+                  font-size: 12px;
+                  color: #94a3b8;
+                  margin-top: 4px;
+                ">该堆垛当前没有作业记录</div>
+              </div>
+              </div>
+            `;
+            whPanel.style.display = 'block';
+            layoutInfoPanels();
+          }
+        }).catch(error => {
+          console.error('获取作业详情失败:', error);
+          whPanel.style.display = 'none';
+        });
+      } else {
+        whPanel.style.display = 'none';
+      }
+    } else if (info && isWarehouse) {
+      // 只有仓库本身才显示仓库信息，堆垛不显示
       whPanel.innerHTML = `
           <div style="font-weight:600;margin-bottom:6px;">仓库 ${info.id}</div>
           <div>面积: ${info.area} m²</div>
@@ -4529,6 +4964,9 @@ function getSiloSelectedColor(obj) {
 
     // 为#A仓库添加作业人和作业车
     if (mainWarehouseCxForWorker !== undefined && mainWarehouseCzForWorker !== undefined) {
+      // 获取作业详情数据
+      const workDetailsData = await fetchWorkDetailsFromAPI();
+      
       const worker = buildWorker();
       const workVehicle = buildWorkVehicle();
       
@@ -4548,7 +4986,6 @@ function getSiloSelectedColor(obj) {
         所属库区: '#A',
         位置: `X:${worker.position.x.toFixed(1)}, Z:${worker.position.z.toFixed(1)}`
       };
-      scene.add(worker);
       
       const vehicleScale = 2;
       workVehicle.scale.set(vehicleScale, vehicleScale, vehicleScale);
@@ -4557,7 +4994,14 @@ function getSiloSelectedColor(obj) {
         所属库区: '#A',
         位置: `X:${workVehicle.position.x.toFixed(1)}, Z:${workVehicle.position.z.toFixed(1)}`
       };
+      
+      // 根据作业详情控制显示（#A仓库没有堆垛编号，使用null）
+      applyWorkDetailsToWorkerAndVehicle(worker, workVehicle, null, workDetailsData);
+      
+      scene.add(worker);
       scene.add(workVehicle);
+      
+      // 作业人和作业车不再注册为可点击对象，改为点击堆垛查看详情
     }
 
     // 独立的平仓配置 - 每个平仓都是完全独立的
@@ -4690,6 +5134,9 @@ function getSiloSelectedColor(obj) {
           { z: flatCz + stackSpacing * scale, number: warehouseName === 'P01' ? '5-3' : (warehouseName === 'P02' ? '4-3' : '3-3') }  // 北侧堆垛
         ];
         
+        // 获取作业详情数据
+        const workDetailsData = await fetchWorkDetailsFromAPI();
+        
         // 为每个堆垛创建作业人和作业车
         for (const stackPos of stackPositions) {
           const worker = buildWorker();
@@ -4720,7 +5167,6 @@ function getSiloSelectedColor(obj) {
             所属堆垛: stackPos.number,
             位置: `X:${worker.position.x.toFixed(1)}, Z:${worker.position.z.toFixed(1)}`
           };
-          scene.add(worker);
           
           const vehicleScale = scale * 2;
           workVehicle.scale.set(vehicleScale, vehicleScale, vehicleScale);
@@ -4730,10 +5176,22 @@ function getSiloSelectedColor(obj) {
             所属堆垛: stackPos.number,
             位置: `X:${workVehicle.position.x.toFixed(1)}, Z:${workVehicle.position.z.toFixed(1)}`
           };
+          
+          // 根据作业详情控制显示
+          applyWorkDetailsToWorkerAndVehicle(worker, workVehicle, stackPos.number, workDetailsData);
+          
+          scene.add(worker);
           scene.add(workVehicle);
+          
+          // 注册为可点击对象
+          registerPickable(worker);
+          registerPickable(workVehicle);
         }
       } else {
         // 其他平仓：保持原有位置（仓库前方），单个作业人和作业车
+        // 获取作业详情数据
+        const workDetailsData = await fetchWorkDetailsFromAPI();
+        
         const worker = buildWorker();
         const workVehicle = buildWorkVehicle();
         
@@ -4753,7 +5211,6 @@ function getSiloSelectedColor(obj) {
           所属库区: warehouseName,
           位置: `X:${worker.position.x.toFixed(1)}, Z:${worker.position.z.toFixed(1)}`
         };
-        scene.add(worker);
         
         const vehicleScale = (config.scale || 1) * 2;
         workVehicle.scale.set(vehicleScale, vehicleScale, vehicleScale);
@@ -4762,7 +5219,16 @@ function getSiloSelectedColor(obj) {
           所属库区: warehouseName,
           位置: `X:${workVehicle.position.x.toFixed(1)}, Z:${workVehicle.position.z.toFixed(1)}`
         };
+        
+        // 根据作业详情控制显示（其他平仓没有堆垛编号，使用null）
+        applyWorkDetailsToWorkerAndVehicle(worker, workVehicle, null, workDetailsData);
+        
+        scene.add(worker);
         scene.add(workVehicle);
+        
+        // 注册为可点击对象
+        registerPickable(worker);
+        registerPickable(workVehicle);
       }
       
       flatWarehouses.push(flatWarehouse);
