@@ -56,7 +56,8 @@ BASE_URL = "http://localhost:9979/ocr-service"  # 可按需修改
 HEALTH_CHECK_PATH = "/actuator/health"  # 健康检查路径，可根据实际情况修改
 DEPLOYMENT_WAIT_MAX = 300  # 最大等待部署时间（秒）
 DEPLOYMENT_CHECK_INTERVAL = 5  # 检查间隔（秒）
-LOG_FILE = os.getenv("AI_TEST_LOG_FILE", os.path.join(PROJECT_DIR, "ai_test.log"))
+LOG_DIR = "/home/gitlab-runner/running/ocr-customs-java"
+LOG_FILE = os.getenv("AI_TEST_LOG_FILE", os.path.join(LOG_DIR, "ai_test.log"))
 
 
 # ================== 日志输出 ==================
