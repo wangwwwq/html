@@ -47,6 +47,12 @@ except ImportError:
     print("⚠️  警告: 未安装 requests 库，请运行: pip install requests")
     requests = None
 
+try:
+    import javalang
+except ImportError:
+    javalang = None
+    print("⚠️  警告: 未安装 javalang，将使用正则解析 Java 代码（pip install javalang 可启用 AST 解析）")
+
 print("【AI 测试】脚本已启动")
 
 # ================== 项目目录 & 基本配置 ==================
@@ -217,25 +223,8 @@ def get_changed_lines(file_path: str, base: str, head: str) -> Set[int]:
 
 # ================== Java 解析 ==================
 
-MAPPING_RE = re.compile(
-    r'@(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)'
-    r'(?:\s*\(\s*((?:[^()"]+|"[^"]*")+)?\))?',
-    re.S,
-)
-
-CLASS_MAPPING_RE = re.compile(
-    r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"?',
-    re.S,
-)
-
-METHOD_RE = re.compile(
-    r'public\s+[^{(]+\s+(\w+)\s*\(([^)]*)\)\s*(?:throws\s+[^{]+)?\{',
-    re.S,
-)
-
-PARAM_SPLIT_RE = re.compile(r',(?![^()]*\))')
-
 FIELD_RE = re.compile(r'^\s*(private|protected|public)\s+([\w<>?,\s\[\]]+)\s+(\w+)\s*;', re.M)
+PARAM_SPLIT_RE = re.compile(r',(?![^()]*\))')
 
 PRIMITIVE_SAMPLES = {
     "int": 1,
@@ -356,6 +345,13 @@ def parse_params(param_text: str) -> Dict[str, object]:
             result["query"].append(name)
     return result
 
+
+def parse_request_mapping_http_method(raw_args: str) -> str:
+    if not raw_args:
+        return "GET"
+    ms = re.findall(r'RequestMethod\.(GET|POST|PUT|DELETE|PATCH)', raw_args)
+    return ms[0] if ms else "GET"
+
 def parse_mapping_path(raw: str) -> str:
     if not raw:
         return "/"
@@ -392,6 +388,209 @@ def combine_path(prefix: str, path: str) -> str:
     return "/".join(
         [seg for seg in (prefix.rstrip("/"), path.lstrip("/")) if seg]
     ) or "/"
+
+
+# 根据行号和列号计算在整个文件字符串中的偏移量
+def _offset_from_line_col(content: str, line: Optional[int], col: Optional[int]) -> int:
+    if not line or line <= 0:
+        return 0
+    lines = content.splitlines(keepends=True)
+    if line - 1 >= len(lines):
+        return len(content)
+    offset = sum(len(l) for l in lines[: line - 1])
+    if col and col > 0:
+        offset += col - 1
+    return offset
+
+
+# ================== Java AST 解析辅助 ==================
+
+def _ast_get_annotation_name(ann) -> str:
+    """获取注解简单名，如 'GetMapping' 或 'RequestMapping'"""
+    name = getattr(ann, "name", "") or ""
+    return name.split(".")[-1]
+
+
+def _ast_get_literal_string(val) -> Optional[str]:
+    """
+    从 javalang 的 Literal 或其他简单节点中提取字符串值（去掉引号）。
+    """
+    if val is None:
+        return None
+    # javalang.tree.Literal 一般有 .value，如 "\"/path\""
+    v = getattr(val, "value", None)
+    if isinstance(v, str):
+        return v.strip('"').strip("'")
+    # 兜底：如果本身就是字符串
+    if isinstance(val, str):
+        return val
+    return None
+
+
+def _ast_get_annotation_attr(ann, attr_name: str):
+    """
+    从注解里取指定属性（如 value/path/method）对应的 AST 节点。
+    支持 @Xxx("...") 和 @Xxx(value="...") 两种形式。
+    """
+    # @RequestMapping("/foo")
+    element = getattr(ann, "element", None)
+    if element is not None:
+        return element
+
+    # @RequestMapping(value="/foo", method=...)
+    for pair in getattr(ann, "element_pairs", []):
+        if getattr(pair, "name", None) == attr_name:
+            return getattr(pair, "value", None)
+    return None
+
+
+def _ast_extract_mapping_from_annotation(ann) -> Optional[Tuple[str, str]]:
+    """
+    从一个方法或类上的 Mapping 注解中解析出 (http_method, path)；
+    http_method 可能是 "GET"/"POST"/"REQUEST" 等。
+    """
+    name = _ast_get_annotation_name(ann)
+
+    # 统一获取 path/value
+    val_node = _ast_get_annotation_attr(ann, "value") or _ast_get_annotation_attr(ann, "path")
+    path_str = _ast_get_literal_string(val_node) or "/"
+
+    if name == "RequestMapping":
+        # 类似原正则逻辑，先用占位 "REQUEST"，后续再根据 method 属性或默认 GET 处理
+        http_method = "REQUEST"
+
+        # 尝试从 method=RequestMethod.POST 等中解析出具体方法
+        method_node = _ast_get_annotation_attr(ann, "method")
+        # 可能是单个，也可能是数组
+        candidates: List[str] = []
+        if method_node is not None:
+            vals = getattr(method_node, "values", None) or [method_node]
+            for v in vals:
+                qualifier = getattr(v, "qualifier", "") or ""
+                member = getattr(v, "member", "") or ""
+                if member in ("GET", "POST", "PUT", "DELETE", "PATCH"):
+                    candidates.append(member)
+                elif qualifier.endswith("RequestMethod") and member:
+                    candidates.append(member)
+        if candidates:
+            http_method = candidates[0]
+
+        return http_method, path_str or "/"
+
+    if name.endswith("Mapping"):
+        http_method = name.replace("Mapping", "").upper()  # GetMapping -> GET
+        return http_method, path_str or "/"
+
+    return None
+
+
+def _ast_extract_method_params(method) -> Dict[str, object]:
+    """
+    尽量保持和 parse_params 输出一致：
+      { "body": Optional[str], "query": [str], "path": [str] }
+    """
+    result: Dict[str, object] = {"body": None, "query": [], "path": []}
+
+    for p in getattr(method, "parameters", []):
+        name = getattr(p, "name", None)
+        if not name:
+            continue
+
+        type_name = ""
+        if getattr(p, "type", None) is not None:
+            type_name = getattr(p.type, "name", "") or ""
+
+        ann_names = {_ast_get_annotation_name(a) for a in getattr(p, "annotations", [])}
+
+        if "RequestBody" in ann_names:
+            result["body"] = type_name or None
+        elif "PathVariable" in ann_names:
+            result["path"].append(name)
+        else:
+            result["query"].append(name)
+
+    return result
+
+
+def parse_controller_with_ast(file_path: str) -> Optional[List[Dict]]:
+    """
+    使用 javalang AST 解析 Controller，返回 test_cases；
+    若 javalang 不可用或解析失败，返回 None（由上层回退到正则解析）。
+    """
+    if javalang is None:
+        return None
+
+    try:
+        content = open(file_path, encoding="utf-8", errors="ignore").read()
+    except Exception:
+        return None
+
+    try:
+        tree = javalang.parse.parse(content)
+    except Exception as e:
+        print(f"  ⚠️ AST 解析失败，跳过该 Controller: {e}")
+        return []
+
+    test_cases: List[Dict] = []
+
+    for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+        # 是否 Controller
+        ann_names = {_ast_get_annotation_name(a) for a in getattr(cls, "annotations", [])}
+        if "RestController" not in ann_names and "Controller" not in ann_names:
+            continue
+
+        # 类级别前缀（@RequestMapping）
+        class_prefix = ""
+        for ann in getattr(cls, "annotations", []):
+            mapping = _ast_extract_mapping_from_annotation(ann)
+            if not mapping:
+                continue
+            _, p = mapping
+            class_prefix = p or class_prefix
+
+        # 方法级别
+        for method in getattr(cls, "methods", []):
+            method_mappings: List[Tuple[str, str]] = []
+            for ann in getattr(method, "annotations", []):
+                mapping = _ast_extract_mapping_from_annotation(ann)
+                if mapping:
+                    method_mappings.append(mapping)
+
+            if not method_mappings:
+                continue
+
+            params = _ast_extract_method_params(method)
+
+            for http_method, path in method_mappings:
+                # 处理 RequestMapping 默认方法
+                if http_method == "REQUEST":
+                    http_method = "GET"
+
+                full_path = combine_path(class_prefix, path or "/")
+                method_name = getattr(method, "name", "")
+
+                print(f"  ✅ [AST] [{http_method}] {full_path or '/'}")
+                print(f"     方法名 : {method_name}")
+                if params["body"]:
+                    print(f"     Body   : {params['body']}")
+                else:
+                    print(f"     参数   : 无")
+
+                test_cmd = build_test_request(http_method, full_path or "/", params)
+                print(f"     测试   : {test_cmd}")
+
+                test_cases.append(
+                    {
+                        "file_path": file_path,
+                        "http_method": http_method,
+                        "full_path": full_path or "/",
+                        "method_name": method_name,
+                        "params": params,
+                        "curl_cmd": test_cmd,
+                    }
+                )
+
+    return test_cases
 
 # ================== 项目索引 & 依赖关系 ==================
 
@@ -718,24 +917,38 @@ def extract_method_snippets_by_keywords(
     keywords: List[str],
     max_methods: int = 20,
 ) -> str:
-    """按方法粒度截取包含任意关键字的代码片段"""
+    """按方法粒度截取包含任意关键字的代码片段（基于 AST）。"""
     try:
         content = open(file_path, encoding="utf-8", errors="ignore").read()
     except Exception:
         return ""
 
-    methods = list(METHOD_RE.finditer(content))
-    snippets = []
-    for m in methods:
-        if len(snippets) >= max_methods:
-            break
-        start = m.start()
-        end = find_method_body_end(content, start)
-        if end == -1:
-            continue
-        block = content[start : end + 1]
-        if any(k in block for k in keywords):
-            snippets.append(block.strip() + "\n")
+    if javalang is None:
+        lines = content.splitlines()
+        return "\n".join(lines[:80])
+
+    try:
+        tree = javalang.parse.parse(content)
+    except Exception:
+        lines = content.splitlines()
+        return "\n".join(lines[:80])
+
+    snippets: List[str] = []
+
+    for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+        for method in getattr(cls, "methods", []):
+            if len(snippets) >= max_methods:
+                break
+            pos = getattr(method, "position", None)
+            if not pos:
+                continue
+            start = _offset_from_line_col(content, pos.line, pos.column)
+            end = find_method_body_end(content, start)
+            if end == -1:
+                continue
+            block = content[start : end + 1]
+            if any(k in block for k in keywords):
+                snippets.append(block.strip() + "\n")
 
     if not snippets:
         lines = content.splitlines()
@@ -769,131 +982,239 @@ def _find_changed_methods_in_impl(
       { method_name -> 方法源码块 }
     """
     changed_lines = get_changed_lines(impl_path, base, head)
-    if not changed_lines:
+    if not changed_lines or javalang is None:
         return {}
 
-    methods = list(METHOD_RE.finditer(content))
+    try:
+        tree = javalang.parse.parse(content)
+    except Exception as e:
+        print(f"  ⚠️ AST 解析 ServiceImpl 失败，跳过方法级影响分析: {e}")
+        return {}
+
+    impl_simple = os.path.splitext(os.path.basename(impl_path))[0]
     changed_methods: Dict[str, str] = {}
-    for m in methods:
-        method_name = m.group(1)
-        start = m.start()
-        end = find_method_body_end(content, start)
-        if end == -1:
+
+    for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+        if getattr(cls, "name", None) != impl_simple:
             continue
-        method_line = line_no(content, start)
-        method_end_line = line_no(content, end)
-        if any(method_line <= l <= method_end_line for l in changed_lines):
-            block = content[start : end + 1]
-            changed_methods[method_name] = block
+        for method in getattr(cls, "methods", []):
+            pos = getattr(method, "position", None)
+            if not pos:
+                continue
+            start = _offset_from_line_col(content, pos.line, pos.column)
+            end = find_method_body_end(content, start)
+            if end == -1:
+                continue
+            method_line = line_no(content, start)
+            method_end_line = line_no(content, end)
+            if any(method_line <= l <= method_end_line for l in changed_lines):
+                block = content[start : end + 1]
+                changed_methods[getattr(method, "name", "")] = block
+
     return changed_methods
 
 
 def _find_controller_mappings_for_service_method(
+    impl_name: str,
     service_method_name: str,
     java_index,
+    controller_to_services,
+    service_to_controllers,
 ) -> List[Dict[str, str]]:
     """
-    查找在 Controller 中调用了指定 Service 方法的方法及其 HTTP Mapping。
+    查找在“注入了指定 Service/Impl”的 Controller 中，
+    调用了指定 Service 方法的方法及其 HTTP Mapping。
     返回列表元素结构:
       {"controller": ..., "controller_method": ..., "http_method": ..., "path": ...}
     """
     results: List[Dict[str, str]] = []
-    for ctrl_path in java_index.get("controllers", []):
-        info = None
-        # 通过 path 找 simple name 和内容
+
+    # 1. 找到 impl 对应的 Service 接口名集合
+    services: Set[str] = set()
+    # impl_name 本身可能直接被注入到 Controller 中
+    # 这里不依赖 service_to_impls，而是直接使用 controller_to_services 做一次遍历
+    for ctrl, svcs in controller_to_services.items():
+        if impl_name in svcs:
+            services.update(svcs)
+    # 如果阶段 C 中已推导出 impl_to_services，可以通过它补充 services
+    # 但此函数当前未直接持有 impl_to_services，为保持简单仅依赖 controller_to_services + service_to_controllers
+
+    # 2. 基于 Service 接口名，通过 service_to_controllers 找候选 Controller simple name
+    candidate_controllers: Set[str] = set()
+    for svc in services:
+        candidate_controllers |= service_to_controllers.get(svc, set())
+
+    # 3. 如果依赖图没有给出候选 Controller，则退化为全量 Controller 扫描
+    if not candidate_controllers:
         for simple, meta in java_index["by_simple"].items():
-            if meta["path"] == ctrl_path:
-                info = meta
-                ctrl_simple = simple
-                break
+            if meta["path"] in java_index.get("controllers", []):
+                candidate_controllers.add(simple)
+
+    if javalang is None:
+        return results
+
+    for ctrl_simple in candidate_controllers:
+        info = java_index["by_simple"].get(ctrl_simple)
         if not info:
             continue
         content = info["content"]
-        class_prefix = ""
-        class_mapping = CLASS_MAPPING_RE.search(content)
-        if class_mapping:
-            class_prefix = class_mapping.group(1)
 
-        mappings = list(MAPPING_RE.finditer(content))
-        methods = list(METHOD_RE.finditer(content))
+        try:
+            tree = javalang.parse.parse(content)
+        except Exception as e:
+            print(f"  ⚠️ AST 解析 Controller {ctrl_simple} 失败，跳过: {e}")
+            continue
 
-        for m in mappings:
-            method = find_next_method(m.end(), methods)
-            if not method:
-                continue
-            start = method.start()
-            end = find_method_body_end(content, start)
-            if end == -1:
-                continue
-            body = content[start : end + 1]
-            if service_method_name not in body:
+        for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+            if getattr(cls, "name", None) != ctrl_simple:
                 continue
 
-            http_method = m.group(1).replace("Mapping", "").upper()
-            path = parse_mapping_path(m.group(2))
-            full_path = combine_path(class_prefix, path)
-            controller_method_name = method.group(1)
+            # 类级别前缀
+            class_prefix = ""
+            for ann in getattr(cls, "annotations", []):
+                mapping = _ast_extract_mapping_from_annotation(ann)
+                if mapping:
+                    _, p = mapping
+                    class_prefix = p or class_prefix
 
-            results.append(
-                {
-                    "controller": ctrl_simple,
-                    "controller_method": controller_method_name,
-                    "http_method": http_method,
-                    "path": full_path or "/",
-                }
-            )
+            for method in getattr(cls, "methods", []):
+                # 是否调用了目标 Service 方法
+                invoked = False
+                for _, inv in method.filter(javalang.tree.MethodInvocation):
+                    if getattr(inv, "member", None) == service_method_name:
+                        invoked = True
+                        break
+                if not invoked:
+                    continue
+
+                method_mappings: List[Tuple[str, str]] = []
+                for ann in getattr(method, "annotations", []):
+                    mapping = _ast_extract_mapping_from_annotation(ann)
+                    if mapping:
+                        method_mappings.append(mapping)
+
+                if not method_mappings:
+                    continue
+
+                for http_method, path in method_mappings:
+                    if http_method == "REQUEST":
+                        http_method = "GET"
+                    full_path = combine_path(class_prefix, path or "/")
+                    controller_method_name = getattr(method, "name", "")
+
+                    results.append(
+                        {
+                            "controller": ctrl_simple,
+                            "controller_method": controller_method_name,
+                            "http_method": http_method,
+                            "path": full_path or "/",
+                        }
+                    )
     return results
 
 
 def _find_mapper_methods_for_service_method(
     impl_name: str,
-    method_code: str,
+    service_method_name: str,
     impl_to_mappers: Dict[str, Set[str]],
     java_index,
     xml_index,
 ) -> Dict[str, Dict[str, Dict[str, List[str]]]]:
     """
-    在 ServiceImpl 的方法代码中，基于 impl_to_mappers 推断可能调用的 Mapper 方法及 XML SQL。
+    使用 AST 在 ServiceImpl 的指定方法中查找 Mapper 方法调用，并关联到 Mapper 接口与 XML SQL。
+    若 AST 精确映射失败，会回退到基于方法名交集的正则兜底逻辑。
     返回:
       {
         mapperSimple: {
-           "methods": [java 方法签名片段...],
-           "xml_sql": [xml 片段...]
+           "methods": {"snippets": [java 方法签名片段...]},
+           "xml_sql": {"snippets": [xml 片段...]}
         },
         ...
       }
     """
     result: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
-    mappers = impl_to_mappers.get(impl_name, set())
-    if not mappers:
+    mapper_types = impl_to_mappers.get(impl_name, set())
+    if not mapper_types:
         return {}
 
-    for mapper_simple in mappers:
+    impl_meta = java_index["by_simple"].get(impl_name)
+    if not impl_meta:
+        return {}
+
+    content = impl_meta.get("content") or ""
+    if not content:
+        return {}
+
+    ast_ok = javalang is not None
+
+    mapper_to_methods: Dict[str, Set[str]] = {}
+
+    if ast_ok:
+        try:
+            tree = javalang.parse.parse(content)
+        except Exception as e:
+            print(f"  ⚠️ AST 解析 ServiceImpl {impl_name} 失败，将回退到正则 Mapper 分析: {e}")
+            ast_ok = False
+
+    if ast_ok:
+        # 1. 在 ServiceImpl 类中找到 mapper 字段名 -> mapper 类型 的映射
+        var_to_mapper_type: Dict[str, str] = {}
+
+        for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+            if getattr(cls, "name", None) != impl_name:
+                continue
+            for field in getattr(cls, "fields", []):
+                t = getattr(field, "type", None)
+                type_name = getattr(t, "name", "") if t else ""
+                simple_type = type_name.split("<")[0] if type_name else ""
+                if simple_type not in mapper_types:
+                    continue
+                for decl in getattr(field, "declarators", []):
+                    var_name = getattr(decl, "name", None)
+                    if var_name:
+                        var_to_mapper_type[var_name] = simple_type
+
+            # 2. 在目标 Service 方法中查找对这些 mapper 字段的调用
+            for method in getattr(cls, "methods", []):
+                if getattr(method, "name", None) != service_method_name:
+                    continue
+                for _, inv in method.filter(javalang.tree.MethodInvocation):
+                    qualifier = getattr(inv, "qualifier", None)
+                    member = getattr(inv, "member", None)
+                    if not member:
+                        continue
+                    mapper_simple = var_to_mapper_type.get(qualifier) if qualifier else None
+                    if not mapper_simple:
+                        # qualifier 无法解析到字段时，暂不使用 AST 精确映射
+                        continue
+                    mapper_to_methods.setdefault(mapper_simple, set()).add(member)
+
+            break  # 只处理匹配的 impl_name 类
+
+    # 若 AST 未找到任何 mapper 调用，回退到旧的“方法名交集”逻辑
+    if not mapper_to_methods:
+        # 在整个 impl 的文本中用旧逻辑辅助一把
+        for mapper_simple in mapper_types:
+            java_meta = java_index["by_simple"].get(mapper_simple)
+            if not java_meta:
+                continue
+            java_content = java_meta["content"]
+            called_methods = set(re.findall(r'\b(\w+)\s*\(', content))
+            mapper_methods = set(re.findall(r'\b(\w+)\s*\(', java_content))
+            method_names = called_methods & mapper_methods
+            if method_names:
+                mapper_to_methods[mapper_simple] = method_names
+
+    # 3. 基于 mapper_to_methods 构造 Java / XML 片段
+    for mapper_simple, method_names in mapper_to_methods.items():
         java_meta = java_index["by_simple"].get(mapper_simple)
         if not java_meta:
             continue
         java_content = java_meta["content"]
         java_lines = java_content.splitlines()
 
-        # 猜测变量名（简单驼峰）
-        camel = mapper_simple[0].lower() + mapper_simple[1:] if mapper_simple else ""
-        method_names: Set[str] = set()
-        # 搜索 mapperVariable.method(...)
-        if camel:
-            pattern_var = re.compile(rf'\b{re.escape(camel)}\.(\w+)\s*\(')
-            for mm in pattern_var.finditer(method_code):
-                method_names.add(mm.group(1))
-        # 搜索 MapperClass.method(...)
-        pattern_cls = re.compile(rf'\b{re.escape(mapper_simple)}\.(\w+)\s*\(')
-        for mm in pattern_cls.finditer(method_code):
-            method_names.add(mm.group(1))
-
-        if not method_names:
-            continue
-
         java_snippets: List[str] = []
         for mn in sorted(method_names):
-            # 在 Mapper.java 中找到方法名出现的位置，截取附近若干行
             for idx, line in enumerate(java_lines):
                 if mn in line and "(" in line:
                     start = max(0, idx - 2)
@@ -909,7 +1230,6 @@ def _find_mapper_methods_for_service_method(
             except Exception:
                 continue
             for mn in method_names:
-                # 简单匹配 id="methodName" 的 SQL 片段
                 m_tag = re.search(
                     rf'<(select|insert|update|delete)[^>]*\sid\s*=\s*"{re.escape(mn)}"[^>]*>',
                     xml_content,
@@ -917,7 +1237,6 @@ def _find_mapper_methods_for_service_method(
                 if not m_tag:
                     continue
                 start = m_tag.start()
-                # 粗略找到对应结束标签
                 end_tag = f"</{m_tag.group(1)}>"
                 end = xml_content.find(end_tag, start)
                 if end == -1:
@@ -926,6 +1245,10 @@ def _find_mapper_methods_for_service_method(
                     end += len(end_tag)
                 xml_snippet = xml_content[start:end]
                 xml_snippets.append(xml_snippet.strip())
+
+            if not xml_snippets:
+                lines = xml_content.splitlines()
+                xml_snippets.append("\n".join(lines[:80]))
 
         if java_snippets or xml_snippets:
             result[mapper_simple] = {
@@ -936,6 +1259,48 @@ def _find_mapper_methods_for_service_method(
     return result
 
 
+def _extract_controller_method_code(
+    controller_simple: str,
+    method_name: str,
+    java_index,
+) -> str:
+    """
+    基于 AST 从 Controller 源码中提取指定方法的完整代码块。
+    """
+    if javalang is None:
+        return ""
+
+    meta = java_index["by_simple"].get(controller_simple)
+    if not meta:
+        return ""
+
+    content = meta.get("content") or ""
+    if not content:
+        return ""
+
+    try:
+        tree = javalang.parse.parse(content)
+    except Exception:
+        return ""
+
+    for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+        if getattr(cls, "name", None) != controller_simple:
+            continue
+        for method in getattr(cls, "methods", []):
+            if getattr(method, "name", None) != method_name:
+                continue
+            pos = getattr(method, "position", None)
+            if not pos:
+                continue
+            start = _offset_from_line_col(content, pos.line, pos.column)
+            end = find_method_body_end(content, start)
+            if end == -1:
+                continue
+            return content[start : end + 1].strip()
+
+    return ""
+
+
 def generate_impact_report(
     changed: Dict[str, Set[str]],
     affected_controller_files: Set[str],
@@ -944,6 +1309,7 @@ def generate_impact_report(
     java_index,
     xml_index,
     impl_to_mappers: Dict[str, Set[str]],
+    controller_to_services: Dict[str, Set[str]],
     service_to_controllers: Dict[str, Set[str]],
     base_commit: Optional[str],
     head_commit: Optional[str],
@@ -979,7 +1345,7 @@ def generate_impact_report(
 
                 # 对应 Controller 接口
                 ctrl_mappings = _find_controller_mappings_for_service_method(
-                    method_name, java_index
+                    impl_simple, method_name, java_index, controller_to_services, service_to_controllers
                 )
                 if ctrl_mappings:
                     lines.append("**对应 Controller 接口：**")
@@ -988,12 +1354,24 @@ def generate_impact_report(
                             f"- `{m['http_method']} {m['path']}` "
                             f"(`{m['controller']}.{m['controller_method']}`)"
                         )
+                    # 输出 Controller 方法代码
+                    lines.append("")
+                    lines.append("**Controller 方法代码：**")
+                    for m in ctrl_mappings:
+                        ctrl_code = _extract_controller_method_code(
+                            m["controller"], m["controller_method"], java_index
+                        )
+                        if not ctrl_code:
+                            continue
+                        lines.append(f"```java")
+                        lines.append(ctrl_code)
+                        lines.append("```")
                 else:
-                    lines.append("- 未找到直接调用该 Service 方法的 Controller 接口")
+                    lines.append("- 未能通过静态分析定位 Controller（可能原因：接口注入 / 间接调用 / 方法封装）")
 
                 # 对应 Mapper / XML
                 mapper_info = _find_mapper_methods_for_service_method(
-                    impl_simple, method_code, impl_to_mappers, java_index, xml_index
+                    impl_simple, method_name, impl_to_mappers, java_index, xml_index
                 )
                 if mapper_info:
                     lines.append("**对应 Mapper 接口与 SQL：**")
@@ -1010,7 +1388,7 @@ def generate_impact_report(
                             lines.append(xs)
                             lines.append("```")
                 else:
-                    lines.append("- 未能解析出该方法中使用的 Mapper 方法 / SQL")
+                    lines.append("- 未能通过静态分析解析出该方法中使用的 Mapper 方法 / SQL")
 
                 # Service 方法代码本身
                 lines.append("**Service 方法代码：**")
@@ -1491,98 +1869,11 @@ def parse_controller_precise(
     for file_path in controllers:
         print(f"\n【解析】{file_path}")
 
-        content = open(file_path, encoding="utf-8", errors="ignore").read()
-        if file_path in force_all_controllers:
-            changed_lines: Set[int] = set()
-            print("  ℹ️  此 Controller 由 Service/Mapper/XML 变更牵连，强制全量接口测试")
+        ast_cases = parse_controller_with_ast(file_path)
+        if ast_cases:
+            test_cases.extend(ast_cases)
         else:
-            changed_lines = get_changed_lines(file_path, base, head)
-
-        class_prefix = ""
-        class_mapping = CLASS_MAPPING_RE.search(content)
-        if class_mapping:
-            class_prefix = class_mapping.group(1)
-
-        mappings = list(MAPPING_RE.finditer(content))
-        methods = list(METHOD_RE.finditer(content))
-
-        affected = []
-
-        if file_path in force_all_controllers:
-            # 强制全量：所有 Mapping 对应的方法都纳入
-            for m in mappings:
-                method = find_next_method(m.end(), methods)
-                if method:
-                    affected.append((m, method))
-        else:
-            for m in mappings:
-                mapping_line = line_no(content, m.start())
-                method = find_next_method(m.end(), methods)
-                if not method:
-                    continue
-
-                method_start = method.start()
-                method_end = find_method_body_end(content, method_start)
-
-                method_line = line_no(content, method_start)
-                method_end_line = line_no(content, method_end) if method_end != -1 else method_line
-
-                hit = (
-                    mapping_line in changed_lines
-                    or method_line in changed_lines
-                    or any(method_line <= l <= method_end_line for l in changed_lines)
-                )
-
-                if hit:
-                    affected.append((m, method))
-
-            if not affected and changed_lines:
-                print("  ⚠️ Controller 有修改，但未精确命中接口，判定：全接口受影响")
-                for m in mappings:
-                    method = find_next_method(m.end(), methods)
-                    if method:
-                        affected.append((m, method))
-
-        # 去掉同一方法上的 REQUEST（RequestMapping）占位，如果已有具体映射
-        pruned = []
-        method_has_specific = {}
-        for m, method in affected:
-            http_method = m.group(1).replace("Mapping", "").upper()
-            if http_method != "REQUEST":
-                method_has_specific[method.start()] = True
-        for m, method in affected:
-            http_method = m.group(1).replace("Mapping", "").upper()
-            if http_method == "REQUEST" and method_has_specific.get(method.start()):
-                continue
-            pruned.append((m, method))
-        affected = pruned
-
-        for m, method in affected:
-            http_method = m.group(1).replace("Mapping", "").upper()
-            path = parse_mapping_path(m.group(2))
-            full_path = combine_path(class_prefix, path)
-            method_name = method.group(1)
-            params = parse_params(method.group(2))
-
-            print(f"  ✅ [{http_method}] {full_path or '/'}")
-            print(f"     方法名 : {method_name}")
-            if params["body"]:
-                print(f"     Body   : {params['body']}")
-            else:
-                print(f"     参数   : 无")
-
-            test_cmd = build_test_request(http_method, full_path or "/", params)
-            print(f"     测试   : {test_cmd}")
-            
-            # 添加到测试用例列表
-            test_cases.append({
-                "file_path": file_path,
-                "http_method": http_method,
-                "full_path": full_path or "/",
-                "method_name": method_name,
-                "params": params,
-                "curl_cmd": test_cmd
-            })
+            print("  ⚠️ 该 Controller AST 解析失败或无 Mapping，跳过")
     
     return test_cases
 
@@ -1718,6 +2009,7 @@ def main():
         java_index,
         xml_index,
         impl_to_mappers,
+        controller_to_services,
         service_to_controllers,
         base,
         head,
