@@ -1023,9 +1023,9 @@ def _find_controller_mappings_for_service_method(
 ) -> List[Dict[str, str]]:
     """
     查找在“注入了指定 Service/Impl”的 Controller 中，
-    调用了指定 Service 方法的方法及其 HTTP Mapping。
+    调用了指定 Service 方法的方法及其 HTTP Mapping 与请求体信息。
     返回列表元素结构:
-      {"controller": ..., "controller_method": ..., "http_method": ..., "path": ...}
+      {"controller": ..., "controller_method": ..., "http_method": ..., "path": ..., "body": Optional[str]}
     """
     results: List[Dict[str, str]] = []
 
@@ -1096,6 +1096,10 @@ def _find_controller_mappings_for_service_method(
                 if not method_mappings:
                     continue
 
+                # 提取方法上的参数信息（包括 @RequestBody DTO 名）
+                params = _ast_extract_method_params(method)
+                body_type = params.get("body")
+
                 for http_method, path in method_mappings:
                     if http_method == "REQUEST":
                         http_method = "GET"
@@ -1108,6 +1112,8 @@ def _find_controller_mappings_for_service_method(
                             "controller_method": controller_method_name,
                             "http_method": http_method,
                             "path": full_path or "/",
+                            # 链路解析时也能拿到 RequestBody DTO，例如 CabinetInformationVO
+                            "body": body_type or None,
                         }
                     )
     return results
@@ -1343,17 +1349,38 @@ def generate_impact_report(
                     f"## Service 方法: `{impl_simple}.{method_name}` (`{rel_svc}`)"
                 )
 
-                # 对应 Controller 接口
+                # 对应 Controller 接口（包含请求体 DTO 信息与完整 JSON 请求体）
                 ctrl_mappings = _find_controller_mappings_for_service_method(
                     impl_simple, method_name, java_index, controller_to_services, service_to_controllers
                 )
                 if ctrl_mappings:
                     lines.append("**对应 Controller 接口：**")
                     for m in ctrl_mappings:
-                        lines.append(
-                            f"- `{m['http_method']} {m['path']}` "
-                            f"(`{m['controller']}.{m['controller_method']}`)"
-                        )
+                        body_info = m.get("body")
+                        if body_info:
+                            # 同时输出 RequestBody DTO，例：@RequestBody CabinetInformationVO cabinetInformationVO
+                            lines.append(
+                                f"- `{m['http_method']} {m['path']}` "
+                                f"(`{m['controller']}.{m['controller_method']}`) "
+                                f"Body: `{body_info}`"
+                            )
+                            # 追加完整请求体 JSON（包含嵌套结构）
+                            try:
+                                full_body_json = build_body_sample(body_info)
+                                lines.append("  - 请求体 JSON:")
+                                lines.append("    ```json")
+                                # 缩进一层，避免 markdown 渲染问题
+                                for ln in full_body_json.splitlines():
+                                    lines.append(f"    {ln}")
+                                lines.append("    ```")
+                            except Exception:
+                                # 静默失败，避免影响主流程
+                                pass
+                        else:
+                            lines.append(
+                                f"- `{m['http_method']} {m['path']}` "
+                                f"(`{m['controller']}.{m['controller_method']}`)"
+                            )
                     # 输出 Controller 方法代码
                     lines.append("")
                     lines.append("**Controller 方法代码：**")
@@ -1396,6 +1423,41 @@ def generate_impact_report(
                 lines.append(method_code.strip())
                 lines.append("```")
                 lines.append("")
+
+    # 附录：直接基于 Controller AST 列出受影响接口（包含 Body 信息）
+    if affected_controller_files:
+        lines.append("")
+        lines.append("## 附录：受影响 Controller 接口一览（含 RequestBody）")
+        lines.append("")
+        for ctrl_path in sorted(affected_controller_files):
+            rel_ctrl = os.path.relpath(ctrl_path, PROJECT_DIR)
+            lines.append(f"### Controller: `{rel_ctrl}`")
+            # 复用 AST 解析，拿到每个方法的 Mapping / Body 信息
+            try:
+                test_cases = parse_controller_with_ast(ctrl_path) or []
+            except Exception:
+                test_cases = []
+            if not test_cases:
+                lines.append("- （未能解析出接口方法，可能 AST 解析失败）")
+                lines.append("")
+                continue
+            for tc in test_cases:
+                http_method = tc.get("http_method", "?")
+                full_path = tc.get("full_path", "/")
+                method_name = tc.get("method_name", "")
+                params = tc.get("params", {})
+                body = params.get("body")
+                if body:
+                    lines.append(
+                        f"- `{http_method} {full_path}` "
+                        f"(`{method_name}`) Body: `{body}`"
+                    )
+                else:
+                    lines.append(
+                        f"- `{http_method} {full_path}` "
+                        f"(`{method_name}`)"
+                    )
+            lines.append("")
 
     try:
         with open(IMPACT_REPORT_FILE, "w", encoding="utf-8") as f:
@@ -1575,25 +1637,7 @@ def build_body_sample(dto_name: Optional[str]) -> str:
     构建请求体 JSON 字符串（用于 curl 命令显示）
     """
     body_dict = build_body_dict(dto_name)
-    
-    # 序列化为 JSON 字符串
-    items = []
-    for k, v in body_dict.items():
-        if isinstance(v, str):
-            items.append(f'"{k}": "{v}"')
-        elif isinstance(v, bool):
-            items.append(f'"{k}": {str(v).lower()}')
-        elif isinstance(v, (int, float)):
-            items.append(f'"{k}": {v}')
-        elif isinstance(v, list):
-            items.append(f'"{k}": []')
-        elif isinstance(v, dict):
-            items.append(f'"{k}": {{}}')
-        else:
-            items.append(f'"{k}": "{v}"')
-    if not items:
-        return '{"example": "<replace_with_body>"}'
-    return "{" + ", ".join(items) + "}"
+    return json.dumps(body_dict, ensure_ascii=False)
 
 # ================== curl 生成 ==================
 
