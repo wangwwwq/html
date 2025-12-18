@@ -1610,21 +1610,46 @@ def build_body_dict(dto_name: Optional[str], visited: Optional[Set[str]] = None)
     for _, ftype, fname in fields:
         # 检查是否是自定义类型（非基本类型、非集合）
         base_type = ftype.strip().replace("[]", "").split("<")[0].strip()
-        
-        # 如果是基本类型或已知类型，直接生成
-        if base_type in JAVA_TYPE_SAMPLES or any(k in base_type for k in ("List", "Set", "Collection", "Map")):
-            body_obj[fname] = guess_sample_value(ftype, fname)
-        else:
-            # 可能是嵌套对象，尝试递归生成
-            # 先尝试生成基本值
-            sample = guess_sample_value(ftype, fname)
-            if isinstance(sample, str) and sample.startswith("<") and sample.endswith(">"):
-                # 是占位符，尝试作为嵌套对象处理
-                nested_type = sample[1:-1]
-                nested_obj = build_body_dict(nested_type, visited.copy())
-                body_obj[fname] = nested_obj
+
+        # 1. 处理集合类型（List / Set / Collection）并尽量展开其泛型类型
+        if any(k in base_type for k in ("List", "Set", "Collection")):
+            generic_match = re.search(r'<([^>]+)>', ftype)
+            if generic_match:
+                generic_type = generic_match.group(1).strip()
+                generic_base = generic_type.replace("[]", "").split("<")[0].strip()
+
+                # 如果集合元素是基本类型，生成一个示例元素
+                if generic_base in JAVA_TYPE_SAMPLES:
+                    elem_sample = guess_sample_value(generic_type, fname)
+                    body_obj[fname] = [elem_sample]
+                else:
+                    # 集合元素是自定义类型，递归生成完整结构
+                    nested_obj = build_body_dict(generic_base, visited.copy())
+                    body_obj[fname] = [nested_obj]
             else:
-                body_obj[fname] = sample
+                body_obj[fname] = []
+            continue
+
+        # 2. Map 类型
+        if "Map" in base_type:
+            body_obj[fname] = {}
+            continue
+
+        # 3. 基本类型或已知类型，直接生成
+        if base_type in JAVA_TYPE_SAMPLES:
+            body_obj[fname] = guess_sample_value(ftype, fname)
+            continue
+
+        # 4. 其他自定义类型，尝试递归展开
+        # 先尝试生成基本值
+        sample = guess_sample_value(ftype, fname)
+        if isinstance(sample, str) and sample.startswith("<") and sample.endswith(">"):
+            # 是占位符，尝试作为嵌套对象处理
+            nested_type = sample[1:-1]
+            nested_obj = build_body_dict(nested_type, visited.copy())
+            body_obj[fname] = nested_obj
+        else:
+            body_obj[fname] = sample
     
     visited.remove(dto_name)
     
