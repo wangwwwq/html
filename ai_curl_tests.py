@@ -50,12 +50,23 @@ except ImportError:
 print("【AI 测试】脚本已启动")
 
 # ================== 项目目录 & 基本配置 ==================
-PROJECT_DIR = "/home/wangweiqing/ocrai/ocr-customs-java"
+# 可通过环境变量 PROJECT_DIR / BASE_URL 覆盖默认值
+PROJECT_DIR = "/home/gitlab-runner/builds/_TQ32fEV/0/wuzhuoyan/ocr-customs-java"
 BASE_URL = "http://localhost:9979/ocr-service"  # 可按需修改
 HEALTH_CHECK_PATH = "/actuator/health"  # 健康检查路径，可根据实际情况修改
 DEPLOYMENT_WAIT_MAX = 300  # 最大等待部署时间（秒）
 DEPLOYMENT_CHECK_INTERVAL = 5  # 检查间隔（秒）
-LOG_FILE = os.getenv("AI_TEST_LOG_FILE", os.path.join(PROJECT_DIR, "ai_test.log"))
+LOG_DIR = "/home/gitlab-runner/running/ocr-customs-java"
+LOG_FILE = os.getenv("AI_TEST_LOG_FILE", os.path.join(LOG_DIR, "ai_test.log"))
+
+# ===== 阈值与退化策略配置 =====
+AI_MAX_CHANGED_FILES = int(os.getenv("AI_MAX_CHANGED_FILES", "30"))
+AI_MAX_CONTROLLERS = int(os.getenv("AI_MAX_CONTROLLERS", "50"))
+AI_MAX_TESTCASES = int(os.getenv("AI_MAX_TESTCASES", "200"))
+AI_FALLBACK_MODE = os.getenv("AI_FALLBACK_MODE", "all").lower()  # all | changed_only
+AI_IMPACT_OUTPUT_MODE = os.getenv("AI_IMPACT_OUTPUT_MODE", "snippet").lower()  # snippet | full
+# 影响链路报告写到 running 目录，便于 CI 收集
+IMPACT_REPORT_FILE = os.path.join(LOG_DIR, "ai_impact_report.md")
 
 # ================== 日志输出 ==================
 
@@ -93,30 +104,104 @@ def run(cmd: str) -> str:
 def line_no(content: str, pos: int) -> int:
     return content.count("\n", 0, pos) + 1
 
-# ================== git diff 工具 ==================
+# ================== git diff & 变更收集 ==================
 
-def find_changed_controllers() -> List[str]:
-    base = os.getenv("BASE_COMMIT")
-    head = os.getenv("HEAD_COMMIT")
+def git_diff_files(base: str, head: str) -> List[str]:
+    """
+    返回 base..head 之间变更的文件列表（相对 PROJECT_DIR）
+    """
+    if not base or not head:
+        print("  ⚠️ BASE_COMMIT/HEAD_COMMIT 未设置，无法从 git diff 推导变更文件")
+        return []
+    try:
+        diff_output = run(f"git diff --name-only {base}..{head}")
+    except Exception as e:
+        print(f"  ⚠️ 执行 git diff 失败: {e}")
+        return []
+    files = [f.strip() for f in diff_output.splitlines() if f.strip()]
+    print(f"  🔍 git diff 变更文件数: {len(files)}")
+    return files
 
-    print(f"【AI 测试】BASE_COMMIT={base}")
-    print(f"【AI 测试】HEAD_COMMIT={head}")
 
-    diff_files = run(f"git diff --name-only {base}..{head}").splitlines()
-    controllers: List[str] = []
+def classify_changed_files(diff_files: List[str]) -> Dict[str, Set[str]]:
+    """
+    阶段 A：收集变更文件并分类
+    返回:
+        {
+          "controller": set(),
+          "service_impl": set(),
+          "service": set(),
+          "mapper": set(),
+          "mapper_xml": set(),
+          "other": set(),
+        }
+    """
+    changed = {
+        "controller": set(),
+        "service_impl": set(),
+        "service": set(),
+        "mapper": set(),
+        "mapper_xml": set(),
+        "other": set(),
+    }
 
-    for f in diff_files:
-        if not f.endswith(".java"):
-            continue
-        content = open(f, encoding="utf-8", errors="ignore").read()
-        if "@RestController" in content or "@Controller" in content:
-            controllers.append(f)
+    for rel_path in diff_files:
+        path = rel_path.replace("\\", "/")
+        full_path = os.path.join(PROJECT_DIR, rel_path)
+        ext = os.path.splitext(path)[1].lower()
 
-    return controllers
+        if ext == ".java":
+            try:
+                content = open(full_path, encoding="utf-8", errors="ignore").read()
+            except Exception:
+                content = ""
+
+            simple_name = os.path.basename(path)
+
+            # Controller
+            if "@RestController" in content or "@Controller" in content:
+                changed["controller"].add(full_path)
+                continue
+
+            # ServiceImpl
+            if simple_name.endswith("ServiceImpl.java") or "/service/impl/" in path:
+                changed["service_impl"].add(full_path)
+                continue
+
+            # Service 接口
+            if simple_name.endswith("Service.java") or "/service/" in path:
+                changed["service"].add(full_path)
+                continue
+
+            # Mapper 接口
+            if simple_name.endswith("Mapper.java") or "/mapper/" in path:
+                changed["mapper"].add(full_path)
+                continue
+
+            changed["other"].add(full_path)
+
+        elif ext == ".xml":
+            simple_name = os.path.basename(path)
+            if simple_name.endswith("Mapper.xml") or "/mapper/" in path or "/mybatis/" in path:
+                changed["mapper_xml"].add(full_path)
+            else:
+                changed["other"].add(full_path)
+        else:
+            changed["other"].add(full_path if os.path.isabs(rel_path) else full_path)
+
+    print("【阶段 A】变更文件分类结果：")
+    for k, v in changed.items():
+        print(f"  - {k}: {len(v)} 个")
+    return changed
+
 
 def get_changed_lines(file_path: str, base: str, head: str) -> Set[int]:
+    """
+    返回某 Java 文件在 base..head 之间变更的行号集合
+    """
     try:
-        diff = run(f"git diff -U0 {base}..{head} -- {file_path}")
+        rel = os.path.relpath(file_path, PROJECT_DIR)
+        diff = run(f"git diff -U0 {base}..{head} -- {rel}")
     except Exception:
         return set()
 
@@ -133,7 +218,8 @@ def get_changed_lines(file_path: str, base: str, head: str) -> Set[int]:
 # ================== Java 解析 ==================
 
 MAPPING_RE = re.compile(
-    r'@(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\s*\(\s*((?:[^()"]+|"[^"]*")+)?\)',
+    r'@(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)'
+    r'(?:\s*\(\s*((?:[^()"]+|"[^"]*")+)?\))?',
     re.S,
 )
 
@@ -306,6 +392,639 @@ def combine_path(prefix: str, path: str) -> str:
     return "/".join(
         [seg for seg in (prefix.rstrip("/"), path.lstrip("/")) if seg]
     ) or "/"
+
+# ================== 项目索引 & 依赖关系 ==================
+
+JAVA_CLASS_RE = re.compile(r'\b(class|interface)\s+(\w+)\b')
+JAVA_PACKAGE_RE = re.compile(r'package\s+([\w\.]+)\s*;')
+XML_MAPPER_NS_RE = re.compile(r'<mapper[^>]*\snamespace\s*=\s*"([^"]+)"', re.S)
+
+_java_index_cache = None
+_xml_index_cache = None
+
+
+def build_project_index():
+    """
+    阶段 B：扫描 src/main/java 与 src/main/resources，建立一次性索引缓存
+    """
+    global _java_index_cache, _xml_index_cache
+    if _java_index_cache is not None and _xml_index_cache is not None:
+        return _java_index_cache, _xml_index_cache
+
+    java_root = os.path.join(PROJECT_DIR, "src", "main", "java")
+    xml_root = os.path.join(PROJECT_DIR, "src", "main", "resources")
+
+    java_index = {
+        "by_simple": {},
+        "controllers": [],
+        "service_impls": [],
+        "mappers": [],
+    }
+    xml_index = {
+        "by_namespace_simple": {},
+        "by_filename": {},
+    }
+
+    print("【阶段 B】扫描 Java 文件建立索引...")
+    if os.path.isdir(java_root):
+        for root, _, files in os.walk(java_root):
+            for fname in files:
+                if not fname.endswith(".java"):
+                    continue
+                full_path = os.path.join(root, fname)
+                try:
+                    content = open(full_path, encoding="utf-8", errors="ignore").read()
+                except Exception:
+                    content = ""
+
+                m_pkg = JAVA_PACKAGE_RE.search(content)
+                pkg = m_pkg.group(1) if m_pkg else ""
+                m_cls = JAVA_CLASS_RE.search(content)
+                if not m_cls:
+                    continue
+                simple_name = m_cls.group(2)
+
+                java_index["by_simple"][simple_name] = {
+                    "path": full_path,
+                    "content": content,
+                    "package": pkg,
+                }
+
+                rel_path = full_path.replace("\\", "/")
+                if "@RestController" in content or "@Controller" in content:
+                    java_index["controllers"].append(full_path)
+                if fname.endswith("ServiceImpl.java") or "/service/impl/" in rel_path:
+                    java_index["service_impls"].append(full_path)
+                if fname.endswith("Mapper.java") or "/mapper/" in rel_path:
+                    java_index["mappers"].append(full_path)
+    else:
+        print(f"  ⚠️ Java 源码目录不存在: {java_root}")
+
+    print("【阶段 B】扫描 XML Mapper 建立索引...")
+    if os.path.isdir(xml_root):
+        for root, _, files in os.walk(xml_root):
+            for fname in files:
+                if not fname.endswith(".xml"):
+                    continue
+                full_path = os.path.join(root, fname)
+                try:
+                    content = open(full_path, encoding="utf-8", errors="ignore").read()
+                except Exception:
+                    content = ""
+
+                m_ns = XML_MAPPER_NS_RE.search(content)
+                if m_ns:
+                    ns = m_ns.group(1)
+                    simple = ns.split(".")[-1]
+                    xml_index["by_namespace_simple"].setdefault(simple, []).append(full_path)
+
+                xml_index["by_filename"].setdefault(fname, []).append(full_path)
+    else:
+        print(f"  ⚠️ 资源目录不存在: {xml_root}")
+
+    _java_index_cache = java_index
+    _xml_index_cache = xml_index
+    return java_index, xml_index
+
+
+def build_dependency_graphs(java_index):
+    """
+    阶段 C：构建依赖图（ServiceImpl <-> Service, ServiceImpl <-> Mapper, Controller <-> Service/Impl）
+    """
+    impl_to_services: Dict[str, Set[str]] = {}
+    service_to_impls: Dict[str, Set[str]] = {}
+    impl_to_mappers: Dict[str, Set[str]] = {}
+    mapper_to_impls: Dict[str, Set[str]] = {}
+    controller_to_services: Dict[str, Set[str]] = {}
+    service_to_controllers: Dict[str, Set[str]] = {}
+
+    by_simple = java_index["by_simple"]
+
+    implements_re = re.compile(r'class\s+(\w+)\s+[^{]*\bimplements\s+([^<{]+)[{]', re.S)
+    ctor_re_template = r'%s\s*\(([^)]*)\)'
+
+    # ServiceImpl -> Service
+    for impl_path in java_index["service_impls"]:
+        impl_name = os.path.splitext(os.path.basename(impl_path))[0]
+        impl_content = by_simple.get(impl_name, {}).get("content", "")
+        services: Set[str] = set()
+
+        for m in implements_re.finditer(impl_content):
+            if m.group(1) != impl_name:
+                continue
+            impl_list = m.group(2)
+            for item in impl_list.split(","):
+                svc = item.strip().split("<")[0].strip()
+                if svc:
+                    services.add(svc)
+
+        if not services and impl_name.endswith("ServiceImpl"):
+            cand = impl_name[:-len("ServiceImpl")] + "Service"
+            if cand in by_simple:
+                services.add(cand)
+
+        if services:
+            impl_to_services.setdefault(impl_name, set()).update(services)
+            for s in services:
+                service_to_impls.setdefault(s, set()).add(impl_name)
+
+    # ServiceImpl -> Mapper
+    field_inject_re = re.compile(
+        r'(?:@Autowired|@Resource)?\s*(?:private|protected|public|final)?\s*([\w<>]+Mapper)\s+(\w+)\s*;',
+        re.S,
+    )
+    for impl_path in java_index["service_impls"]:
+        impl_name = os.path.splitext(os.path.basename(impl_path))[0]
+        impl_content = by_simple.get(impl_name, {}).get("content", "")
+        mappers: Set[str] = set()
+
+        for m in field_inject_re.finditer(impl_content):
+            type_name = m.group(1)
+            simple = type_name.split("<")[0].strip()
+            mappers.add(simple)
+
+        ctor_re = re.compile(ctor_re_template % impl_name)
+        for m in ctor_re.finditer(impl_content):
+            params_text = m.group(1)
+            for p in params_text.split(","):
+                p = p.strip()
+                if not p:
+                    continue
+                tokens = p.split()
+                if len(tokens) < 2:
+                    continue
+                p_type = tokens[-2]
+                if "Mapper" in p_type:
+                    simple = p_type.split("<")[0].strip()
+                    mappers.add(simple)
+
+        if mappers:
+            impl_to_mappers.setdefault(impl_name, set()).update(mappers)
+            for mm in mappers:
+                mapper_to_impls.setdefault(mm, set()).add(impl_name)
+
+    # Controller -> Service / Impl
+    field_service_re = re.compile(
+        r'(?:@Autowired|@Resource)?\s*(?:private|protected|public|final)?\s*([\w<>]+Service(?:Impl)?)\s+(\w+)\s*;',
+        re.S,
+    )
+    for ctrl_path in java_index["controllers"]:
+        ctrl_name = os.path.splitext(os.path.basename(ctrl_path))[0]
+        ctrl_content = by_simple.get(ctrl_name, {}).get("content", "")
+        services: Set[str] = set()
+
+        for m in field_service_re.finditer(ctrl_content):
+            t = m.group(1)
+            simple = t.split("<")[0].strip()
+            services.add(simple)
+
+        ctor_re = re.compile(ctor_re_template % ctrl_name)
+        for m in ctor_re.finditer(ctrl_content):
+            params_text = m.group(1)
+            for p in params_text.split(","):
+                p = p.strip()
+                if not p:
+                    continue
+                tokens = p.split()
+                if len(tokens) < 2:
+                    continue
+                p_type = tokens[-2]
+                if "Service" in p_type:
+                    simple = p_type.split("<")[0].strip()
+                    services.add(simple)
+
+        if services:
+            controller_to_services.setdefault(ctrl_name, set()).update(services)
+            for s in services:
+                service_to_controllers.setdefault(s, set()).add(ctrl_name)
+
+    print("【阶段 C】依赖图构建完成：")
+    print(f"  - impl_to_services: {len(impl_to_services)} 条")
+    print(f"  - impl_to_mappers: {len(impl_to_mappers)} 条")
+    print(f"  - controller_to_services: {len(controller_to_services)} 条")
+
+    return (
+        impl_to_services,
+        service_to_impls,
+        impl_to_mappers,
+        mapper_to_impls,
+        controller_to_services,
+        service_to_controllers,
+    )
+
+
+def resolve_affected_controllers(
+    changed: Dict[str, Set[str]],
+    java_index,
+    xml_index,
+    impl_to_services,
+    service_to_impls,
+    impl_to_mappers,
+    mapper_to_impls,
+    controller_to_services,
+    service_to_controllers,
+):
+    """
+    阶段 D：根据变更 + 依赖图推导受影响 Controller
+    """
+    by_simple = java_index["by_simple"]
+
+    # 受影响 Mapper simpleName
+    affected_mapper_simple: Set[str] = set()
+    for path in changed["mapper"]:
+        simple = os.path.splitext(os.path.basename(path))[0]
+        affected_mapper_simple.add(simple)
+    for path in changed["mapper_xml"]:
+        fname = os.path.basename(path)
+        simple_from_name = os.path.splitext(fname)[0]
+        if simple_from_name.endswith("Mapper"):
+            affected_mapper_simple.add(simple_from_name)
+        # 通过 namespace 匹配
+        for simple, paths in xml_index.get("by_namespace_simple", {}).items():
+            if path in paths:
+                affected_mapper_simple.add(simple)
+
+    # 受影响 ServiceImpl
+    affected_impl: Set[str] = set()
+    for path in changed["service_impl"]:
+        impl = os.path.splitext(os.path.basename(path))[0]
+        affected_impl.add(impl)
+    for m in affected_mapper_simple:
+        for impl in mapper_to_impls.get(m, []):
+            affected_impl.add(impl)
+
+    # 受影响 Service
+    affected_services: Set[str] = set()
+    for impl in affected_impl:
+        for s in impl_to_services.get(impl, []):
+            affected_services.add(s)
+    for path in changed["service"]:
+        s = os.path.splitext(os.path.basename(path))[0]
+        affected_services.add(s)
+
+    # 受影响 Controller
+    affected_controllers_simple: Set[str] = set()
+    forced_controllers_simple: Set[str] = set()
+    reasons: Dict[str, List[str]] = {}
+
+    for path in changed["controller"]:
+        simple = os.path.splitext(os.path.basename(path))[0]
+        affected_controllers_simple.add(simple)
+        reasons.setdefault(simple, []).append("Controller 文件自身发生变更")
+
+    for svc in affected_services:
+        for ctrl in service_to_controllers.get(svc, []):
+            affected_controllers_simple.add(ctrl)
+            forced_controllers_simple.add(ctrl)
+            reasons.setdefault(ctrl, []).append(
+                f"Service {svc} 受影响，注入到 Controller {ctrl}"
+            )
+
+    for impl in affected_impl:
+        for ctrl, svcs in controller_to_services.items():
+            if impl in svcs:
+                affected_controllers_simple.add(ctrl)
+                forced_controllers_simple.add(ctrl)
+                reasons.setdefault(ctrl, []).append(
+                    f"ServiceImpl {impl} 受影响，被 Controller {ctrl} 直接注入"
+                )
+
+    affected_controller_files: Set[str] = set()
+    forced_controller_files: Set[str] = set()
+    for simple, info in by_simple.items():
+        if info["path"] in java_index["controllers"] and simple in affected_controllers_simple:
+            affected_controller_files.add(info["path"])
+            if simple in forced_controllers_simple:
+                forced_controller_files.add(info["path"])
+
+    print("【阶段 D】受影响 Controller 推导结果：")
+    print(f"  - 受影响 Mapper: {sorted(affected_mapper_simple)}")
+    print(f"  - 受影响 ServiceImpl: {sorted(affected_impl)}")
+    print(f"  - 受影响 Service: {sorted(affected_services)}")
+    print(f"  - 受影响 Controller 文件: {len(affected_controller_files)} 个")
+
+    return affected_controller_files, forced_controller_files, reasons
+
+
+def list_all_controllers(java_index) -> List[str]:
+    """返回项目中所有 Controller 文件路径"""
+    return list(java_index.get("controllers", []))
+
+
+# ================== 代码片段提取 & 影响报告 ==================
+
+def extract_method_snippets_by_keywords(
+    file_path: str,
+    keywords: List[str],
+    max_methods: int = 20,
+) -> str:
+    """按方法粒度截取包含任意关键字的代码片段"""
+    try:
+        content = open(file_path, encoding="utf-8", errors="ignore").read()
+    except Exception:
+        return ""
+
+    methods = list(METHOD_RE.finditer(content))
+    snippets = []
+    for m in methods:
+        if len(snippets) >= max_methods:
+            break
+        start = m.start()
+        end = find_method_body_end(content, start)
+        if end == -1:
+            continue
+        block = content[start : end + 1]
+        if any(k in block for k in keywords):
+            snippets.append(block.strip() + "\n")
+
+    if not snippets:
+        lines = content.splitlines()
+        return "\n".join(lines[:80])
+    return "\n\n".join(snippets)
+
+
+def extract_mapper_java_snippet(file_path: str, max_lines: int = 120) -> str:
+    try:
+        content = open(file_path, encoding="utf-8", errors="ignore").read()
+    except Exception:
+        return ""
+    lines = content.splitlines()
+    return "\n".join(lines[:max_lines])
+
+
+def extract_xml_snippet(file_path: str, max_lines: int = 120) -> str:
+    try:
+        content = open(file_path, encoding="utf-8", errors="ignore").read()
+    except Exception:
+        return ""
+    lines = content.splitlines()
+    return "\n".join(lines[:max_lines])
+
+
+def _find_changed_methods_in_impl(
+    impl_path: str, content: str, base: str, head: str
+) -> Dict[str, str]:
+    """
+    返回 ServiceImpl 中发生变更的方法:
+      { method_name -> 方法源码块 }
+    """
+    changed_lines = get_changed_lines(impl_path, base, head)
+    if not changed_lines:
+        return {}
+
+    methods = list(METHOD_RE.finditer(content))
+    changed_methods: Dict[str, str] = {}
+    for m in methods:
+        method_name = m.group(1)
+        start = m.start()
+        end = find_method_body_end(content, start)
+        if end == -1:
+            continue
+        method_line = line_no(content, start)
+        method_end_line = line_no(content, end)
+        if any(method_line <= l <= method_end_line for l in changed_lines):
+            block = content[start : end + 1]
+            changed_methods[method_name] = block
+    return changed_methods
+
+
+def _find_controller_mappings_for_service_method(
+    service_method_name: str,
+    java_index,
+) -> List[Dict[str, str]]:
+    """
+    查找在 Controller 中调用了指定 Service 方法的方法及其 HTTP Mapping。
+    返回列表元素结构:
+      {"controller": ..., "controller_method": ..., "http_method": ..., "path": ...}
+    """
+    results: List[Dict[str, str]] = []
+    for ctrl_path in java_index.get("controllers", []):
+        info = None
+        # 通过 path 找 simple name 和内容
+        for simple, meta in java_index["by_simple"].items():
+            if meta["path"] == ctrl_path:
+                info = meta
+                ctrl_simple = simple
+                break
+        if not info:
+            continue
+        content = info["content"]
+        class_prefix = ""
+        class_mapping = CLASS_MAPPING_RE.search(content)
+        if class_mapping:
+            class_prefix = class_mapping.group(1)
+
+        mappings = list(MAPPING_RE.finditer(content))
+        methods = list(METHOD_RE.finditer(content))
+
+        for m in mappings:
+            method = find_next_method(m.end(), methods)
+            if not method:
+                continue
+            start = method.start()
+            end = find_method_body_end(content, start)
+            if end == -1:
+                continue
+            body = content[start : end + 1]
+            if service_method_name not in body:
+                continue
+
+            http_method = m.group(1).replace("Mapping", "").upper()
+            path = parse_mapping_path(m.group(2))
+            full_path = combine_path(class_prefix, path)
+            controller_method_name = method.group(1)
+
+            results.append(
+                {
+                    "controller": ctrl_simple,
+                    "controller_method": controller_method_name,
+                    "http_method": http_method,
+                    "path": full_path or "/",
+                }
+            )
+    return results
+
+
+def _find_mapper_methods_for_service_method(
+    impl_name: str,
+    method_code: str,
+    impl_to_mappers: Dict[str, Set[str]],
+    java_index,
+    xml_index,
+) -> Dict[str, Dict[str, Dict[str, List[str]]]]:
+    """
+    在 ServiceImpl 的方法代码中，基于 impl_to_mappers 推断可能调用的 Mapper 方法及 XML SQL。
+    返回:
+      {
+        mapperSimple: {
+           "methods": [java 方法签名片段...],
+           "xml_sql": [xml 片段...]
+        },
+        ...
+      }
+    """
+    result: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
+    mappers = impl_to_mappers.get(impl_name, set())
+    if not mappers:
+        return {}
+
+    for mapper_simple in mappers:
+        java_meta = java_index["by_simple"].get(mapper_simple)
+        if not java_meta:
+            continue
+        java_content = java_meta["content"]
+        java_lines = java_content.splitlines()
+
+        # 猜测变量名（简单驼峰）
+        camel = mapper_simple[0].lower() + mapper_simple[1:] if mapper_simple else ""
+        method_names: Set[str] = set()
+        # 搜索 mapperVariable.method(...)
+        if camel:
+            pattern_var = re.compile(rf'\b{re.escape(camel)}\.(\w+)\s*\(')
+            for mm in pattern_var.finditer(method_code):
+                method_names.add(mm.group(1))
+        # 搜索 MapperClass.method(...)
+        pattern_cls = re.compile(rf'\b{re.escape(mapper_simple)}\.(\w+)\s*\(')
+        for mm in pattern_cls.finditer(method_code):
+            method_names.add(mm.group(1))
+
+        if not method_names:
+            continue
+
+        java_snippets: List[str] = []
+        for mn in sorted(method_names):
+            # 在 Mapper.java 中找到方法名出现的位置，截取附近若干行
+            for idx, line in enumerate(java_lines):
+                if mn in line and "(" in line:
+                    start = max(0, idx - 2)
+                    end = min(len(java_lines), idx + 8)
+                    java_snippets.append("\n".join(java_lines[start:end]))
+                    break
+
+        xml_snippets: List[str] = []
+        xml_paths = xml_index.get("by_namespace_simple", {}).get(mapper_simple, [])
+        for xml_path in xml_paths:
+            try:
+                xml_content = open(xml_path, encoding="utf-8", errors="ignore").read()
+            except Exception:
+                continue
+            for mn in method_names:
+                # 简单匹配 id="methodName" 的 SQL 片段
+                m_tag = re.search(
+                    rf'<(select|insert|update|delete)[^>]*\sid\s*=\s*"{re.escape(mn)}"[^>]*>',
+                    xml_content,
+                )
+                if not m_tag:
+                    continue
+                start = m_tag.start()
+                # 粗略找到对应结束标签
+                end_tag = f"</{m_tag.group(1)}>"
+                end = xml_content.find(end_tag, start)
+                if end == -1:
+                    end = start + 400
+                else:
+                    end += len(end_tag)
+                xml_snippet = xml_content[start:end]
+                xml_snippets.append(xml_snippet.strip())
+
+        if java_snippets or xml_snippets:
+            result[mapper_simple] = {
+                "methods": {"snippets": java_snippets},
+                "xml_sql": {"snippets": xml_snippets},
+            }
+
+    return result
+
+
+def generate_impact_report(
+    changed: Dict[str, Set[str]],
+    affected_controller_files: Set[str],
+    forced_controller_files: Set[str],
+    affected_reason: Dict[str, List[str]],
+    java_index,
+    xml_index,
+    impl_to_mappers: Dict[str, Set[str]],
+    service_to_controllers: Dict[str, Set[str]],
+    base_commit: Optional[str],
+    head_commit: Optional[str],
+):
+    """阶段 E：生成影响链路 markdown 报告（仅输出方法级影响链路）"""
+    mode = AI_IMPACT_OUTPUT_MODE
+    print(f"【阶段 E】生成影响链路报告 ({mode}) -> {IMPACT_REPORT_FILE}")
+
+    lines: List[str] = []
+    lines.append("# AI 接口方法级影响链路报告")
+    lines.append("")
+
+    if not (base_commit and head_commit):
+        lines.append("⚠️ 未提供 BASE_COMMIT / HEAD_COMMIT，无法计算方法级变更")
+    else:
+        for svc_path in sorted(changed.get("service_impl", [])):
+            impl_simple = os.path.splitext(os.path.basename(svc_path))[0]
+            meta = java_index["by_simple"].get(impl_simple)
+            if not meta:
+                continue
+            impl_content = meta["content"]
+            changed_methods = _find_changed_methods_in_impl(
+                svc_path, impl_content, base_commit, head_commit
+            )
+            if not changed_methods:
+                continue
+
+            rel_svc = os.path.relpath(svc_path, PROJECT_DIR)
+            for method_name, method_code in changed_methods.items():
+                lines.append(
+                    f"## Service 方法: `{impl_simple}.{method_name}` (`{rel_svc}`)"
+                )
+
+                # 对应 Controller 接口
+                ctrl_mappings = _find_controller_mappings_for_service_method(
+                    method_name, java_index
+                )
+                if ctrl_mappings:
+                    lines.append("**对应 Controller 接口：**")
+                    for m in ctrl_mappings:
+                        lines.append(
+                            f"- `{m['http_method']} {m['path']}` "
+                            f"(`{m['controller']}.{m['controller_method']}`)"
+                        )
+                else:
+                    lines.append("- 未找到直接调用该 Service 方法的 Controller 接口")
+
+                # 对应 Mapper / XML
+                mapper_info = _find_mapper_methods_for_service_method(
+                    impl_simple, method_code, impl_to_mappers, java_index, xml_index
+                )
+                if mapper_info:
+                    lines.append("**对应 Mapper 接口与 SQL：**")
+                    for mapper_simple, payload in mapper_info.items():
+                        lines.append(f"- Mapper: `{mapper_simple}`")
+                        java_snips = payload["methods"].get("snippets") or []
+                        xml_snips = payload["xml_sql"].get("snippets") or []
+                        for js in java_snips:
+                            lines.append("```java")
+                            lines.append(js)
+                            lines.append("```")
+                        for xs in xml_snips:
+                            lines.append("```xml")
+                            lines.append(xs)
+                            lines.append("```")
+                else:
+                    lines.append("- 未能解析出该方法中使用的 Mapper 方法 / SQL")
+
+                # Service 方法代码本身
+                lines.append("**Service 方法代码：**")
+                lines.append("```java")
+                lines.append(method_code.strip())
+                lines.append("```")
+                lines.append("")
+
+    try:
+        with open(IMPACT_REPORT_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        print(f"  ✅ 影响链路报告已生成: {IMPACT_REPORT_FILE}")
+    except Exception as e:
+        print(f"  ⚠️ 写入影响链路报告失败: {e}")
 
 # ================== 测试数据配置 ==================
 
@@ -749,7 +1468,10 @@ def send_test_request(http_method: str, full_path: str, params: Dict[str, object
 
 # ================== 核心解析逻辑 ==================
 
-def parse_controller_precise(controllers: List[str]) -> List[Dict]:
+def parse_controller_precise(
+    controllers: List[str],
+    force_all_controllers: Optional[Set[str]] = None,
+) -> List[Dict]:
     """
     解析 Controller 并返回测试用例列表
     返回: [{
@@ -763,13 +1485,18 @@ def parse_controller_precise(controllers: List[str]) -> List[Dict]:
     """
     base = os.getenv("BASE_COMMIT")
     head = os.getenv("HEAD_COMMIT")
-    test_cases = []
+    test_cases: List[Dict] = []
+    force_all_controllers = force_all_controllers or set()
 
     for file_path in controllers:
         print(f"\n【解析】{file_path}")
 
         content = open(file_path, encoding="utf-8", errors="ignore").read()
-        changed_lines = get_changed_lines(file_path, base, head)
+        if file_path in force_all_controllers:
+            changed_lines: Set[int] = set()
+            print("  ℹ️  此 Controller 由 Service/Mapper/XML 变更牵连，强制全量接口测试")
+        else:
+            changed_lines = get_changed_lines(file_path, base, head)
 
         class_prefix = ""
         class_mapping = CLASS_MAPPING_RE.search(content)
@@ -781,33 +1508,40 @@ def parse_controller_precise(controllers: List[str]) -> List[Dict]:
 
         affected = []
 
-        for m in mappings:
-            mapping_line = line_no(content, m.start())
-            method = find_next_method(m.end(), methods)
-            if not method:
-                continue
-
-            method_start = method.start()
-            method_end = find_method_body_end(content, method_start)
-
-            method_line = line_no(content, method_start)
-            method_end_line = line_no(content, method_end) if method_end != -1 else method_line
-
-            hit = (
-                mapping_line in changed_lines
-                or method_line in changed_lines
-                or any(method_line <= l <= method_end_line for l in changed_lines)
-            )
-
-            if hit:
-                affected.append((m, method))
-
-        if not affected and changed_lines:
-            print("  ⚠️ Controller 有修改，但未精确命中接口，判定：全接口受影响")
+        if file_path in force_all_controllers:
+            # 强制全量：所有 Mapping 对应的方法都纳入
             for m in mappings:
                 method = find_next_method(m.end(), methods)
                 if method:
                     affected.append((m, method))
+        else:
+            for m in mappings:
+                mapping_line = line_no(content, m.start())
+                method = find_next_method(m.end(), methods)
+                if not method:
+                    continue
+
+                method_start = method.start()
+                method_end = find_method_body_end(content, method_start)
+
+                method_line = line_no(content, method_start)
+                method_end_line = line_no(content, method_end) if method_end != -1 else method_line
+
+                hit = (
+                    mapping_line in changed_lines
+                    or method_line in changed_lines
+                    or any(method_line <= l <= method_end_line for l in changed_lines)
+                )
+
+                if hit:
+                    affected.append((m, method))
+
+            if not affected and changed_lines:
+                print("  ⚠️ Controller 有修改，但未精确命中接口，判定：全接口受影响")
+                for m in mappings:
+                    method = find_next_method(m.end(), methods)
+                    if method:
+                        affected.append((m, method))
 
         # 去掉同一方法上的 REQUEST（RequestMapping）占位，如果已有具体映射
         pruned = []
@@ -920,22 +1654,121 @@ def run_tests(test_cases: List[Dict]) -> Dict:
 # ================== 主流程 ==================
 
 def main():
-    print("【阶段 1】检测 Controller 变更")
-    controllers = find_changed_controllers()
+    print("【阶段 0】读取 git 变更 & 基本信息")
+    base = os.getenv("BASE_COMMIT")
+    head = os.getenv("HEAD_COMMIT")
+    print(f"  BASE_COMMIT={base}")
+    print(f"  HEAD_COMMIT={head}")
+    print(f"  AI_MAX_CHANGED_FILES={AI_MAX_CHANGED_FILES}, AI_MAX_CONTROLLERS={AI_MAX_CONTROLLERS}, AI_MAX_TESTCASES={AI_MAX_TESTCASES}")
+    print(f"  AI_FALLBACK_MODE={AI_FALLBACK_MODE}, AI_IMPACT_OUTPUT_MODE={AI_IMPACT_OUTPUT_MODE}")
 
-    if not controllers:
-        print("【AI 测试】无 Controller 变更")
+    diff_files = git_diff_files(base, head)
+    if not diff_files:
+        print("【AI 测试】未检测到 git 变更文件，退出")
         return
 
-    for c in controllers:
-        print("  -", c)
+    # 是否需要退化（可能由多种原因叠加触发）
+    fallback_needed = False
+
+    if len(diff_files) > AI_MAX_CHANGED_FILES:
+        print(f"  ⚠️ 变更文件数 {len(diff_files)} 超过阈值 {AI_MAX_CHANGED_FILES}，将触发退化策略: {AI_FALLBACK_MODE}")
+        fallback_needed = True
+
+    # 阶段 A：分类
+    changed = classify_changed_files(diff_files)
+
+    # 阶段 B：索引
+    java_index, xml_index = build_project_index()
+
+    # 阶段 C：依赖图
+    (
+        impl_to_services,
+        service_to_impls,
+        impl_to_mappers,
+        mapper_to_impls,
+        controller_to_services,
+        service_to_controllers,
+    ) = build_dependency_graphs(java_index)
+
+    # 阶段 D：受影响 Controller 推导
+    try:
+        affected_controllers, forced_controllers, affected_reason = resolve_affected_controllers(
+            changed,
+            java_index,
+            xml_index,
+            impl_to_services,
+            service_to_impls,
+            impl_to_mappers,
+            mapper_to_impls,
+            controller_to_services,
+            service_to_controllers,
+        )
+    except Exception as e:
+        print(f"  ⚠️ 解析依赖失败，将触发退化策略: {e}")
+        affected_controllers = set()
+        forced_controllers = set()
+        affected_reason = {}
+
+    # 阶段 E：生成影响报告
+    generate_impact_report(
+        changed,
+        affected_controllers,
+        forced_controllers,
+        affected_reason,
+        java_index,
+        xml_index,
+        impl_to_mappers,
+        service_to_controllers,
+        base,
+        head,
+    )
+    print(f"【影响链路报告】路径: {IMPACT_REPORT_FILE}")
+
+    # 阈值与退化策略决定最终要测试的 Controller
+    if len(affected_controllers) > AI_MAX_CONTROLLERS:
+        print(f"  ⚠️ 受影响 Controller 数 {len(affected_controllers)} 超过阈值 {AI_MAX_CONTROLLERS}，启用退化策略")
+        fallback_needed = True
+
+    if not affected_controllers:
+        # 没有通过依赖图推导出任何 Controller，也走退化策略
+        print("  ⚠️ 未能推导出受影响 Controller，将根据退化策略决定范围")
+        fallback_needed = True
+
+    if fallback_needed:
+        if AI_FALLBACK_MODE == "changed_only":
+            final_controllers = sorted(changed.get("controller", []))
+            force_all = set(final_controllers)
+            print(f"  ℹ️  退化为仅测试直接变更的 Controller，共 {len(final_controllers)} 个")
+        else:
+            # all
+            final_controllers = list_all_controllers(java_index)
+            force_all = set(final_controllers)
+            print(f"  ℹ️  退化为全量 Controller 测试，共 {len(final_controllers)} 个")
+    else:
+        final_controllers = sorted(affected_controllers)
+        # 由 service/mapper/XML 间接影响的 controller 强制全量
+        force_all = set(forced_controllers)
+        print(f"  ✅ 本次受影响 Controller 文件数: {len(final_controllers)}")
+
+    if not final_controllers:
+        print("【AI 测试】未找到需要测试的 Controller，退出")
+        return
+
+    print("\n【阶段 1】最终待测 Controller 列表：")
+    for c in final_controllers:
+        mark = " (force_all)" if c in force_all else ""
+        print(f"  - {c}{mark}")
 
     print("\n【阶段 2】方法 / Mapping / Body 级精准定位")
-    test_cases = parse_controller_precise(controllers)
+    test_cases = parse_controller_precise(final_controllers, force_all)
 
     if not test_cases:
         print("\n【AI 测试】未找到需要测试的接口")
         return
+
+    if len(test_cases) > AI_MAX_TESTCASES:
+        print(f"  ⚠️ 生成的测试用例数 {len(test_cases)} 超过阈值 {AI_MAX_TESTCASES}，将仅执行前 {AI_MAX_TESTCASES} 条")
+        test_cases = test_cases[:AI_MAX_TESTCASES]
 
     print(f"\n【阶段 3】等待部署完成")
     # 检查是否跳过部署等待（通过环境变量控制）
