@@ -354,6 +354,19 @@ def _parse_dto_structure(
                             inner_type = getattr(arg, "name", None)
                             break
 
+                    # 解析 @TestDefaultValue 注解
+                    test_default_value = None
+                    for ann in getattr(field, "annotations", []):
+                        ann_name = getattr(ann, "name", "") or ""
+                        if ann_name == "TestDefaultValue":
+                            # 尝试从 ann.element 获取值
+                            element = getattr(ann, "element", None)
+                            if element is not None:
+                                val = getattr(element, "value", None)
+                                if isinstance(val, str):
+                                    test_default_value = val.strip('"').strip("'")
+                            break
+
                     for decl in getattr(field, "declarators", []):
                         field_name = getattr(decl, "name", "")
                         if not field_name:
@@ -372,6 +385,7 @@ def _parse_dto_structure(
                             "type": actual_type,
                             "is_list": is_list,
                             "nested": nested,
+                            "test_default": test_default_value,
                         })
                 break
         except Exception as e:
@@ -403,6 +417,12 @@ def _parse_dto_fields_regex(
         re.M
     )
 
+    # 匹配 @TestDefaultValue("xxx") 注解，支持注解与字段不在同一行
+    test_default_pattern = re.compile(
+        r'@TestDefaultValue\s*\(\s*"([^"]*)"\s*\)',
+        re.M
+    )
+
     for m in field_pattern.finditer(content):
         collection_type = m.group(1)
         generic_type = m.group(2)
@@ -411,6 +431,15 @@ def _parse_dto_fields_regex(
 
         is_list = collection_type is not None
         actual_type = generic_type if is_list and generic_type else type_name
+
+        # 在字段声明之前的 200 字符范围内查找 @TestDefaultValue 注解
+        search_start = max(0, m.start() - 200)
+        preceding_text = content[search_start:m.start()]
+        test_default_value = None
+        test_default_matches = list(test_default_pattern.finditer(preceding_text))
+        if test_default_matches:
+            # 取最后一个匹配（最接近字段声明的注解）
+            test_default_value = test_default_matches[-1].group(1)
 
         nested = None
         if actual_type and _is_custom_dto_type(actual_type, java_index):
@@ -423,6 +452,7 @@ def _parse_dto_fields_regex(
             "type": actual_type,
             "is_list": is_list,
             "nested": nested,
+            "test_default": test_default_value,
         })
 
     return fields
@@ -451,9 +481,15 @@ def _format_dto_structure_markdown(dto_struct: Optional[Dict], indent: int = 0) 
         ftype = field.get("type", "")
         is_list = field.get("is_list", False)
         nested = field.get("nested")
+        test_default = field.get("test_default")
 
         type_display = f"List<{ftype}>" if is_list else ftype
-        lines.append(f"{prefix}  - `{name}`: `{type_display}`")
+
+        # 若存在 test_default，追加展示
+        if test_default is not None:
+            lines.append(f"{prefix}  - `{name}`: `{type_display}` (test default = {test_default})")
+        else:
+            lines.append(f"{prefix}  - `{name}`: `{type_display}`")
 
         if nested and nested.get("fields"):
             nested_md = _format_dto_structure_markdown(nested, indent + 2)
@@ -1515,7 +1551,7 @@ def upload_impact_report(report_file_path: str) -> bool:
         print(f"⚠️  影响链路报告文件不存在: {report_file_path}")
         return False
     
-    upload_url = "https://6166qiyy8859.vicp.fun/bailian/automaticTesting"
+    upload_url = "https://6166qiyy8859.vicp.fun/ai/bailian/automaticTesting"
     
     try:
         print(f"\n【上传影响链路报告】")
