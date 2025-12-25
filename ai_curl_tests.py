@@ -190,11 +190,17 @@ def get_changed_lines(file_path: str, base: str, head: str) -> Set[int]:
     changed: Set[int] = set()
     for line in diff.splitlines():
         if line.startswith("@@"):
-            new_part = line.split()[2]  # +20,2
+            new_part = line.split()[2]  # +20,2 或 +20,0（删除时）
             start = int(new_part[1:].split(",")[0])
             length = int(new_part.split(",")[1]) if "," in new_part else 1
-            for i in range(length):
-                changed.add(start + i)
+
+            # 当 length = 0 时（纯删除操作），也需要标记该位置
+            if length == 0:
+                # 删除操作：标记删除发生的位置
+                changed.add(start)
+            else:
+                for i in range(length):
+                    changed.add(start + i)
     return changed
 
 # ================== Java 解析 ==================
@@ -371,7 +377,55 @@ def _parse_dto_structure(
         except Exception as e:
             print(f"  ⚠️ AST 解析 DTO {dto_name} 失败: {e}")
 
+    # AST 解析失败或无结果时，使用正则兜底
+    if not result["fields"]:
+        result["fields"] = _parse_dto_fields_regex(content, dto_name, java_index, visited, max_depth)
+
     return result
+
+
+def _parse_dto_fields_regex(
+    content: str,
+    dto_name: str,
+    java_index,
+    visited: Set[str],
+    max_depth: int,
+) -> List[Dict]:
+    """使用正则表达式解析 DTO 字段（AST 解析失败时的兜底方案）"""
+    fields = []
+
+    # 匹配字段: private List<ItemVO> items; 或 private String name;
+    field_pattern = re.compile(
+        r'(?:private|protected|public)\s+'
+        r'(List|ArrayList|Set|HashSet|Collection)?\s*'
+        r'(?:<\s*(\w+)\s*>)?\s*'
+        r'(\w+)\s+(\w+)\s*;',
+        re.M
+    )
+
+    for m in field_pattern.finditer(content):
+        collection_type = m.group(1)
+        generic_type = m.group(2)
+        type_name = m.group(3)
+        field_name = m.group(4)
+
+        is_list = collection_type is not None
+        actual_type = generic_type if is_list and generic_type else type_name
+
+        nested = None
+        if actual_type and _is_custom_dto_type(actual_type, java_index):
+            nested = _parse_dto_structure(
+                actual_type, java_index, visited.copy(), max_depth - 1
+            )
+
+        fields.append({
+            "name": field_name,
+            "type": actual_type,
+            "is_list": is_list,
+            "nested": nested,
+        })
+
+    return fields
 
 
 def _format_dto_structure_markdown(dto_struct: Optional[Dict], indent: int = 0) -> str:
