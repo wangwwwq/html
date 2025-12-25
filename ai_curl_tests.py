@@ -285,6 +285,129 @@ def _offset_from_line_col(content: str, line: Optional[int], col: Optional[int])
     return offset
 
 
+# ================== DTO/VO Body 结构解析 ==================
+
+def _is_custom_dto_type(type_name: str, java_index) -> bool:
+    """判断类型是否为自定义 DTO/VO/Entity 类型"""
+    basic_types = {
+        "String", "Integer", "Long", "Double", "Float", "Boolean", "Byte", "Short",
+        "int", "long", "double", "float", "boolean", "byte", "short", "char",
+        "BigDecimal", "BigInteger", "Date", "LocalDate", "LocalDateTime", "LocalTime",
+        "Timestamp", "Object", "Map", "HashMap", "MultipartFile",
+    }
+    if type_name in basic_types:
+        return False
+    return type_name in java_index.get("by_simple", {})
+
+
+def _parse_dto_structure(
+    dto_name: str,
+    java_index,
+    visited: Optional[Set[str]] = None,
+    max_depth: int = 5,
+) -> Optional[Dict]:
+    """
+    递归解析 DTO/VO 类的字段结构，支持 List 嵌套。
+    """
+    if visited is None:
+        visited = set()
+
+    if dto_name in visited or max_depth <= 0:
+        return {"class_name": dto_name, "fields": [], "note": "循环引用或递归深度限制"}
+
+    visited.add(dto_name)
+
+    meta = java_index["by_simple"].get(dto_name)
+    if not meta:
+        return None
+
+    content = meta.get("content", "")
+    if not content:
+        return None
+
+    result = {"class_name": dto_name, "fields": []}
+
+    if javalang is not None:
+        try:
+            tree = javalang.parse.parse(content)
+            for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+                if getattr(cls, "name", None) != dto_name:
+                    continue
+                for field in getattr(cls, "fields", []):
+                    field_type = getattr(field, "type", None)
+                    if not field_type:
+                        continue
+
+                    type_name = getattr(field_type, "name", "") or ""
+                    is_list = type_name in ("List", "ArrayList", "Set", "HashSet", "Collection")
+
+                    inner_type = None
+                    type_args = getattr(field_type, "arguments", None)
+                    if type_args:
+                        for arg in type_args:
+                            inner_type = getattr(arg, "name", None)
+                            break
+
+                    for decl in getattr(field, "declarators", []):
+                        field_name = getattr(decl, "name", "")
+                        if not field_name:
+                            continue
+
+                        actual_type = inner_type if is_list and inner_type else type_name
+
+                        nested = None
+                        if actual_type and _is_custom_dto_type(actual_type, java_index):
+                            nested = _parse_dto_structure(
+                                actual_type, java_index, visited.copy(), max_depth - 1
+                            )
+
+                        result["fields"].append({
+                            "name": field_name,
+                            "type": actual_type,
+                            "is_list": is_list,
+                            "nested": nested,
+                        })
+                break
+        except Exception as e:
+            print(f"  ⚠️ AST 解析 DTO {dto_name} 失败: {e}")
+
+    return result
+
+
+def _format_dto_structure_markdown(dto_struct: Optional[Dict], indent: int = 0) -> str:
+    """将 DTO 结构格式化为 Markdown 输出"""
+    if not dto_struct:
+        return ""
+
+    lines = []
+    prefix = "  " * indent
+    class_name = dto_struct.get("class_name", "Unknown")
+
+    if indent == 0:
+        lines.append(f"**{class_name}** 字段结构：")
+
+    fields = dto_struct.get("fields", [])
+    if not fields:
+        note = dto_struct.get("note", "无字段信息")
+        lines.append(f"{prefix}  - ({note})")
+        return "\n".join(lines)
+
+    for field in fields:
+        name = field.get("name", "")
+        ftype = field.get("type", "")
+        is_list = field.get("is_list", False)
+        nested = field.get("nested")
+
+        type_display = f"List<{ftype}>" if is_list else ftype
+        lines.append(f"{prefix}  - `{name}`: `{type_display}`")
+
+        if nested and nested.get("fields"):
+            nested_md = _format_dto_structure_markdown(nested, indent + 2)
+            lines.append(nested_md)
+
+    return "\n".join(lines)
+
+
 # ================== Java AST 解析辅助 ==================
 
 def _ast_get_annotation_name(ann) -> str:
@@ -1255,12 +1378,17 @@ def generate_impact_report(
                     for m in ctrl_mappings:
                         body_info = m.get("body")
                         if body_info:
-                            # 同时输出 RequestBody DTO，例：@RequestBody CabinetInformationVO cabinetInformationVO
                             lines.append(
                                 f"- `{m['http_method']} {m['path']}` "
                                 f"(`{m['controller']}.{m['controller_method']}`) "
                                 f"Body: `{body_info}`"
                             )
+                            # 解析并输出 Body 结构
+                            dto_struct = _parse_dto_structure(body_info, java_index)
+                            if dto_struct and dto_struct.get("fields"):
+                                body_md = _format_dto_structure_markdown(dto_struct)
+                                lines.append("")
+                                lines.append(body_md)
                         else:
                             lines.append(
                                 f"- `{m['http_method']} {m['path']}` "
@@ -1309,40 +1437,6 @@ def generate_impact_report(
                 lines.append("```")
                 lines.append("")
 
-    # 附录：直接基于 Controller AST 列出受影响接口（包含 Body 信息）
-    if affected_controller_files:
-        lines.append("")
-        lines.append("## 附录：受影响 Controller 接口一览（含 RequestBody）")
-        lines.append("")
-        for ctrl_path in sorted(affected_controller_files):
-            rel_ctrl = os.path.relpath(ctrl_path, PROJECT_DIR)
-            lines.append(f"### Controller: `{rel_ctrl}`")
-            # 复用 AST 解析，拿到每个方法的 Mapping / Body 信息
-            try:
-                test_cases = parse_controller_with_ast(ctrl_path) or []
-            except Exception:
-                test_cases = []
-            if not test_cases:
-                lines.append("- （未能解析出接口方法，可能 AST 解析失败）")
-                lines.append("")
-                continue
-            for tc in test_cases:
-                http_method = tc.get("http_method", "?")
-                full_path = tc.get("full_path", "/")
-                method_name = tc.get("method_name", "")
-                params = tc.get("params", {})
-                body = params.get("body")
-                if body:
-                    lines.append(
-                        f"- `{http_method} {full_path}` "
-                        f"(`{method_name}`) Body: `{body}`"
-                    )
-                else:
-                    lines.append(
-                        f"- `{http_method} {full_path}` "
-                        f"(`{method_name}`)"
-                    )
-            lines.append("")
 
     try:
         with open(IMPACT_REPORT_FILE, "w", encoding="utf-8") as f:
