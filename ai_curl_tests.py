@@ -1379,9 +1379,14 @@ def _extract_controller_method_code(
     controller_simple: str,
     method_name: str,
     java_index,
+    http_method: str = "GET",
+    path: str = "/",
+    body_type: Optional[str] = None,
 ) -> str:
     """
     基于 AST 从 Controller 源码中提取指定方法的完整代码块。
+    包含：JavaDoc 注释、Mapping 注解、方法签名、方法体。
+    如果源码中没有 JavaDoc，则自动生成。
     """
     if javalang is None:
         return ""
@@ -1399,6 +1404,8 @@ def _extract_controller_method_code(
     except Exception:
         return ""
 
+    lines = content.splitlines()
+
     for _, cls in tree.filter(javalang.tree.ClassDeclaration):
         if getattr(cls, "name", None) != controller_simple:
             continue
@@ -1408,13 +1415,328 @@ def _extract_controller_method_code(
             pos = getattr(method, "position", None)
             if not pos:
                 continue
+
+            # 方法体结束位置
+            method_start_offset = _offset_from_line_col(content, pos.line, pos.column)
+            method_end_offset = find_method_body_end(content, method_start_offset)
+            if method_end_offset == -1:
+                continue
+
+            # 查找注解起始行（向上搜索 @XxxMapping 注解）
+            annotation_start_line = pos.line
+            for ann in getattr(method, "annotations", []):
+                ann_pos = getattr(ann, "position", None)
+                if ann_pos and ann_pos.line < annotation_start_line:
+                    annotation_start_line = ann_pos.line
+
+            # 查找 JavaDoc 注释（在注解之前）
+            javadoc_start_line = annotation_start_line
+            search_line = annotation_start_line - 2  # 0-indexed
+            while search_line >= 0:
+                line_text = lines[search_line].strip()
+                if line_text.endswith("*/"):
+                    # 找到 JavaDoc 结束，向上找开始
+                    for doc_start in range(search_line, -1, -1):
+                        if lines[doc_start].strip().startswith("/**"):
+                            javadoc_start_line = doc_start + 1  # 转为 1-indexed
+                            break
+                    break
+                elif line_text and not line_text.startswith("//"):
+                    # 遇到非空非注释行，停止搜索
+                    break
+                search_line -= 1
+
+            # 提取完整代码块（从 JavaDoc/注解 到方法体结束）
+            code_start_offset = _offset_from_line_col(content, javadoc_start_line, 1)
+            raw_code = content[code_start_offset : method_end_offset + 1].strip()
+
+            # 检查是否有 JavaDoc，如果没有则自动生成
+            has_javadoc = raw_code.strip().startswith("/**")
+            if not has_javadoc:
+                # 自动生成 JavaDoc
+                javadoc = _generate_javadoc(method_name, http_method, path, body_type, method)
+                return javadoc + "\n" + raw_code
+
+            return raw_code
+
+    return ""
+
+
+def _generate_javadoc(
+    method_name: str,
+    http_method: str,
+    path: str,
+    body_type: Optional[str],
+    method,
+) -> str:
+    """
+    根据方法信息自动生成 JavaDoc 注释
+    """
+    # 根据方法名推断接口功能
+    desc = _infer_method_description(method_name)
+
+    lines = ["/**", f" * {desc}"]
+
+    # 添加参数说明
+    if javalang is not None:
+        for param in getattr(method, "parameters", []):
+            param_name = getattr(param, "name", "")
+            param_type = ""
+            if getattr(param, "type", None):
+                param_type = getattr(param.type, "name", "") or ""
+
+            ann_names = {getattr(a, "name", "") for a in getattr(param, "annotations", [])}
+
+            if "RequestBody" in ann_names:
+                lines.append(f" * @param {param_name} 请求体 ({param_type})")
+            elif "PathVariable" in ann_names:
+                lines.append(f" * @param {param_name} 路径参数")
+            elif "RequestParam" in ann_names:
+                lines.append(f" * @param {param_name} 查询参数")
+            elif param_name:
+                lines.append(f" * @param {param_name} 参数")
+
+    lines.append(" * @return 响应结果")
+    lines.append(" */")
+
+    return "\n".join(lines)
+
+
+def _infer_method_description(method_name: str) -> str:
+    """
+    根据方法名推断接口功能描述
+    """
+    # 常见前缀映射
+    prefix_map = {
+        "get": "查询",
+        "find": "查询",
+        "query": "查询",
+        "list": "列表查询",
+        "page": "分页查询",
+        "search": "搜索",
+        "add": "新增",
+        "create": "创建",
+        "insert": "插入",
+        "save": "保存",
+        "update": "更新",
+        "modify": "修改",
+        "edit": "编辑",
+        "delete": "删除",
+        "remove": "移除",
+        "batch": "批量操作",
+        "export": "导出",
+        "import": "导入",
+        "upload": "上传",
+        "download": "下载",
+        "check": "校验",
+        "verify": "验证",
+        "submit": "提交",
+        "approve": "审批",
+        "reject": "驳回",
+        "cancel": "取消",
+        "confirm": "确认",
+    }
+
+    name_lower = method_name.lower()
+    for prefix, desc in prefix_map.items():
+        if name_lower.startswith(prefix):
+            return f"{desc}接口"
+
+    return f"{method_name} 接口"
+
+
+# ================== Controller 变更解析 ==================
+
+def _find_changed_methods_in_controller(
+    ctrl_path: str,
+    content: str,
+    base: str,
+    head: str,
+    java_index,
+) -> List[Dict]:
+    """
+    解析 Controller 中发生变更的方法，返回完整的接口信息列表。
+    每个元素包含: controller, method_name, http_method, path, body, params, code
+    """
+    changed_lines = get_changed_lines(ctrl_path, base, head)
+    if not changed_lines or javalang is None:
+        return []
+
+    try:
+        tree = javalang.parse.parse(content)
+    except Exception as e:
+        print(f"  ⚠️ AST 解析 Controller 失败: {e}")
+        return []
+
+    ctrl_simple = os.path.splitext(os.path.basename(ctrl_path))[0]
+    results: List[Dict] = []
+
+    for _, cls in tree.filter(javalang.tree.ClassDeclaration):
+        if getattr(cls, "name", None) != ctrl_simple:
+            continue
+
+        # 类级别前缀
+        class_prefix = ""
+        for ann in getattr(cls, "annotations", []):
+            mapping = _ast_extract_mapping_from_annotation(ann)
+            if mapping:
+                _, p = mapping
+                class_prefix = p or class_prefix
+
+        for method in getattr(cls, "methods", []):
+            pos = getattr(method, "position", None)
+            if not pos:
+                continue
+
             start = _offset_from_line_col(content, pos.line, pos.column)
             end = find_method_body_end(content, start)
             if end == -1:
                 continue
-            return content[start : end + 1].strip()
 
-    return ""
+            method_line = line_no(content, start)
+            method_end_line = line_no(content, end)
+
+            # 检查方法是否在变更行范围内
+            if not any(method_line <= l <= method_end_line for l in changed_lines):
+                continue
+
+            # 提取 HTTP Mapping
+            method_mappings: List[Tuple[str, str]] = []
+            for ann in getattr(method, "annotations", []):
+                mapping = _ast_extract_mapping_from_annotation(ann)
+                if mapping:
+                    method_mappings.append(mapping)
+
+            if not method_mappings:
+                continue
+
+            # 提取参数信息
+            params = _ast_extract_method_params(method)
+            method_name = getattr(method, "name", "")
+            method_code = content[start : end + 1].strip()
+
+            for http_method, path in method_mappings:
+                if http_method == "REQUEST":
+                    http_method = "GET"
+                full_path = combine_path(class_prefix, path or "/")
+
+                results.append({
+                    "controller": ctrl_simple,
+                    "method_name": method_name,
+                    "http_method": http_method,
+                    "path": full_path,
+                    "body": params.get("body"),
+                    "query": params.get("query", []),
+                    "path_vars": params.get("path", []),
+                    "code": method_code,
+                    "impact_type": "接口行为变更",
+                })
+
+    return results
+
+
+def _generate_test_request_example(
+    http_method: str,
+    path: str,
+    body_type: Optional[str],
+    java_index,
+) -> str:
+    """
+    生成可直接用于自动测试的请求示例
+    """
+    lines = []
+    lines.append(f"**测试请求示例：**")
+    lines.append("```bash")
+
+    # 构建 curl 命令
+    curl_parts = [f"curl -X {http_method}"]
+    curl_parts.append(f"  'http://{{BASE_URL}}{path}'")
+
+    if http_method in ("POST", "PUT", "PATCH") and body_type:
+        curl_parts.append("  -H 'Content-Type: application/json'")
+
+        # 生成请求体 JSON
+        dto_struct = _parse_dto_structure(body_type, java_index)
+        if dto_struct and dto_struct.get("fields"):
+            json_body = _generate_json_from_dto(dto_struct)
+            curl_parts.append(f"  -d '{json_body}'")
+
+    lines.append(" \\\n".join(curl_parts))
+    lines.append("```")
+
+    return "\n".join(lines)
+
+
+def _generate_json_from_dto(dto_struct: Dict, indent: int = 0) -> str:
+    """
+    根据 DTO 结构生成 JSON 请求体示例
+    """
+    fields = dto_struct.get("fields", [])
+    if not fields:
+        return "{}"
+
+    items = []
+    for field in fields:
+        name = field.get("name", "")
+        ftype = field.get("type", "")
+        is_list = field.get("is_list", False)
+        nested = field.get("nested")
+        test_default = field.get("test_default")
+
+        # 生成示例值
+        if test_default is not None:
+            # 使用 @TestDefaultValue 指定的值
+            value = _format_json_value(test_default, ftype)
+        elif nested and nested.get("fields"):
+            # 嵌套对象
+            nested_json = _generate_json_from_dto(nested, indent + 1)
+            value = f"[{nested_json}]" if is_list else nested_json
+        else:
+            # 根据类型生成默认值
+            value = _get_default_value_for_type(ftype, is_list)
+
+        items.append(f'"{name}": {value}')
+
+    return "{" + ", ".join(items) + "}"
+
+
+def _format_json_value(value: str, ftype: str) -> str:
+    """格式化 JSON 值"""
+    # 数字类型不加引号
+    if ftype in ("Integer", "Long", "int", "long", "Double", "Float", "double", "float", "BigDecimal"):
+        return value
+    # 布尔类型
+    if ftype in ("Boolean", "boolean"):
+        return value.lower()
+    # 字符串类型加引号
+    return f'"{value}"'
+
+
+def _get_default_value_for_type(ftype: str, is_list: bool) -> str:
+    """根据类型获取默认示例值"""
+    type_defaults = {
+        "String": '"example"',
+        "Integer": "0",
+        "int": "0",
+        "Long": "0",
+        "long": "0",
+        "Double": "0.0",
+        "double": "0.0",
+        "Float": "0.0",
+        "float": "0.0",
+        "BigDecimal": "0.00",
+        "Boolean": "false",
+        "boolean": "false",
+        "Date": '"2024-01-01"',
+        "LocalDate": '"2024-01-01"',
+        "LocalDateTime": '"2024-01-01T00:00:00"',
+    }
+
+    default_val = type_defaults.get(ftype, "null")
+
+    if is_list:
+        return f"[{default_val}]"
+    return default_val
 
 
 def generate_impact_report(
@@ -1430,7 +1752,7 @@ def generate_impact_report(
     base_commit: Optional[str],
     head_commit: Optional[str],
 ):
-    """阶段 E：生成影响链路 markdown 报告（仅输出方法级影响链路）"""
+    """阶段 E：生成影响链路 markdown 报告（支持多种变更类型）"""
     mode = AI_IMPACT_OUTPUT_MODE
     print(f"【阶段 E】生成影响链路报告 ({mode}) -> {IMPACT_REPORT_FILE}")
 
@@ -1440,94 +1762,199 @@ def generate_impact_report(
 
     if not (base_commit and head_commit):
         lines.append("⚠️ 未提供 BASE_COMMIT / HEAD_COMMIT，无法计算方法级变更")
-    else:
-        for svc_path in sorted(changed.get("service_impl", [])):
-            impl_simple = os.path.splitext(os.path.basename(svc_path))[0]
-            meta = java_index["by_simple"].get(impl_simple)
-            if not meta:
-                continue
-            impl_content = meta["content"]
-            changed_methods = _find_changed_methods_in_impl(
-                svc_path, impl_content, base_commit, head_commit
-            )
-            if not changed_methods:
-                continue
+        _write_report(lines)
+        return
 
-            rel_svc = os.path.relpath(svc_path, PROJECT_DIR)
-            for method_name, method_code in changed_methods.items():
-                lines.append(
-                    f"## Service 方法: `{impl_simple}.{method_name}` (`{rel_svc}`)"
-                )
+    processed_controllers: Set[str] = set()  # 避免重复处理
 
-                # 对应 Controller 接口（包含请求体 DTO 信息与完整 JSON 请求体）
-                ctrl_mappings = _find_controller_mappings_for_service_method(
-                    impl_simple, method_name, java_index, controller_to_services, service_to_controllers
-                )
-                if ctrl_mappings:
-                    lines.append("**对应 Controller 接口：**")
-                    for m in ctrl_mappings:
-                        body_info = m.get("body")
-                        if body_info:
-                            lines.append(
-                                f"- `{m['http_method']} {m['path']}` "
-                                f"(`{m['controller']}.{m['controller_method']}`) "
-                                f"Body: `{body_info}`"
-                            )
-                            # 解析并输出 Body 结构
-                            dto_struct = _parse_dto_structure(body_info, java_index)
-                            if dto_struct and dto_struct.get("fields"):
-                                body_md = _format_dto_structure_markdown(dto_struct)
-                                lines.append("")
-                                lines.append(body_md)
-                        else:
-                            lines.append(
-                                f"- `{m['http_method']} {m['path']}` "
-                                f"(`{m['controller']}.{m['controller_method']}`)"
-                            )
-                    # 输出 Controller 方法代码
-                    lines.append("")
-                    lines.append("**Controller 方法代码：**")
-                    for m in ctrl_mappings:
-                        ctrl_code = _extract_controller_method_code(
-                            m["controller"], m["controller_method"], java_index
-                        )
-                        if not ctrl_code:
-                            continue
-                        lines.append(f"```java")
-                        lines.append(ctrl_code)
-                        lines.append("```")
-                else:
-                    lines.append("- 未能通过静态分析定位 Controller（可能原因：接口注入 / 间接调用 / 方法封装）")
+    # ========== 1. Controller 直接变更 ==========
+    ctrl_changed = changed.get("controller", set())
+    if ctrl_changed:
+        lines.append("---")
+        lines.append("## 一、Controller 直接变更")
+        lines.append("")
 
-                # 对应 Mapper / XML
-                mapper_info = _find_mapper_methods_for_service_method(
-                    impl_simple, method_name, impl_to_mappers, java_index, xml_index
-                )
-                if mapper_info:
-                    lines.append("**对应 Mapper 接口与 SQL：**")
-                    for mapper_simple, payload in mapper_info.items():
-                        lines.append(f"- Mapper: `{mapper_simple}`")
-                        java_snips = payload["methods"].get("snippets") or []
-                        xml_snips = payload["xml_sql"].get("snippets") or []
-                        for js in java_snips:
-                            lines.append("```java")
-                            lines.append(js)
-                            lines.append("```")
-                        for xs in xml_snips:
-                            lines.append("```xml")
-                            lines.append(xs)
-                            lines.append("```")
-                else:
-                    lines.append("- 未能通过静态分析解析出该方法中使用的 Mapper 方法 / SQL")
+    for ctrl_path in sorted(ctrl_changed):
+        ctrl_simple = os.path.splitext(os.path.basename(ctrl_path))[0]
+        meta = java_index["by_simple"].get(ctrl_simple)
+        if not meta:
+            lines.append(f"⚠️ 无法解析 Controller: `{ctrl_simple}` (索引中未找到)")
+            continue
 
-                # Service 方法代码本身
-                lines.append("**Service 方法代码：**")
-                lines.append("```java")
-                lines.append(method_code.strip())
-                lines.append("```")
+        content = meta["content"]
+        changed_methods = _find_changed_methods_in_controller(
+            ctrl_path, content, base_commit, head_commit, java_index
+        )
+
+        if not changed_methods:
+            lines.append(f"⚠️ Controller `{ctrl_simple}` 有变更但未检测到方法级改动（可能是注释/import/类注解变更）")
+            continue
+
+        rel_path = os.path.relpath(ctrl_path, PROJECT_DIR)
+        for m in changed_methods:
+            processed_controllers.add(f"{m['controller']}.{m['method_name']}")
+
+            lines.append(f"### `{m['http_method']} {m['path']}`")
+            lines.append(f"- **Controller**: `{m['controller']}.{m['method_name']}` (`{rel_path}`)")
+            lines.append(f"- **影响类型**: {m['impact_type']}")
+            lines.append("")
+
+            # Body 结构
+            if m.get("body"):
+                lines.append(f"**请求体**: `{m['body']}`")
+                dto_struct = _parse_dto_structure(m["body"], java_index)
+                if dto_struct and dto_struct.get("fields"):
+                    lines.append(_format_dto_structure_markdown(dto_struct))
                 lines.append("")
 
+            # Controller 方法代码
+            lines.append("**Controller 方法代码：**")
+            ctrl_code = _extract_controller_method_code(
+                m["controller"], m["method_name"], java_index,
+                http_method=m["http_method"], path=m["path"], body_type=m.get("body")
+            )
+            if ctrl_code:
+                lines.append("```java")
+                lines.append(ctrl_code)
+                lines.append("```")
 
+            # 测试请求示例
+            lines.append("")
+            lines.append(_generate_test_request_example(
+                m["http_method"], m["path"], m.get("body"), java_index
+            ))
+            lines.append("")
+
+    # ========== 2. ServiceImpl 变更 ==========
+    svc_changed = changed.get("service_impl", set())
+    if svc_changed:
+        lines.append("---")
+        lines.append("## 二、Service 方法变更")
+        lines.append("")
+
+    for svc_path in sorted(svc_changed):
+        impl_simple = os.path.splitext(os.path.basename(svc_path))[0]
+        meta = java_index["by_simple"].get(impl_simple)
+        if not meta:
+            lines.append(f"⚠️ 无法解析 ServiceImpl: `{impl_simple}` (索引中未找到)")
+            continue
+
+        impl_content = meta["content"]
+        changed_methods = _find_changed_methods_in_impl(
+            svc_path, impl_content, base_commit, head_commit
+        )
+
+        if not changed_methods:
+            lines.append(f"⚠️ ServiceImpl `{impl_simple}` 有变更但未检测到方法级改动")
+            continue
+
+        rel_svc = os.path.relpath(svc_path, PROJECT_DIR)
+        for method_name, method_code in changed_methods.items():
+            lines.append(f"### Service 方法: `{impl_simple}.{method_name}`")
+            lines.append(f"- **文件**: `{rel_svc}`")
+            lines.append(f"- **影响类型**: Service 逻辑变更")
+            lines.append("")
+
+            # 对应 Controller 接口
+            ctrl_mappings = _find_controller_mappings_for_service_method(
+                impl_simple, method_name, java_index, controller_to_services, service_to_controllers
+            )
+
+            if ctrl_mappings:
+                lines.append("**受影响的 Controller 接口：**")
+                for m in ctrl_mappings:
+                    ctrl_key = f"{m['controller']}.{m['controller_method']}"
+                    if ctrl_key in processed_controllers:
+                        lines.append(f"- `{m['http_method']} {m['path']}` (已在 Controller 变更中列出)")
+                        continue
+
+                    body_info = m.get("body")
+                    if body_info:
+                        lines.append(f"- `{m['http_method']} {m['path']}` Body: `{body_info}`")
+                        dto_struct = _parse_dto_structure(body_info, java_index)
+                        if dto_struct and dto_struct.get("fields"):
+                            lines.append(_format_dto_structure_markdown(dto_struct))
+                    else:
+                        lines.append(f"- `{m['http_method']} {m['path']}`")
+
+                    # 测试请求示例
+                    lines.append(_generate_test_request_example(
+                        m["http_method"], m["path"], body_info, java_index
+                    ))
+                lines.append("")
+
+                # Controller 方法代码
+                lines.append("**Controller 方法代码：**")
+                for m in ctrl_mappings:
+                    ctrl_code = _extract_controller_method_code(
+                        m["controller"], m["controller_method"], java_index,
+                        http_method=m.get("http_method", "GET"),
+                        path=m.get("path", "/"),
+                        body_type=m.get("body"),
+                    )
+                    if ctrl_code:
+                        lines.append("```java")
+                        lines.append(ctrl_code)
+                        lines.append("```")
+            else:
+                lines.append("⚠️ 未能定位到调用此 Service 方法的 Controller")
+
+            # Mapper / XML
+            mapper_info = _find_mapper_methods_for_service_method(
+                impl_simple, method_name, impl_to_mappers, java_index, xml_index
+            )
+            if mapper_info:
+                lines.append("")
+                lines.append("**对应 Mapper / SQL：**")
+                for mapper_simple, payload in mapper_info.items():
+                    lines.append(f"- Mapper: `{mapper_simple}`")
+                    for js in payload["methods"].get("snippets", []):
+                        lines.append("```java")
+                        lines.append(js)
+                        lines.append("```")
+                    for xs in payload["xml_sql"].get("snippets", []):
+                        lines.append("```xml")
+                        lines.append(xs)
+                        lines.append("```")
+
+            # Service 方法代码
+            lines.append("")
+            lines.append("**Service 方法代码：**")
+            lines.append("```java")
+            lines.append(method_code.strip())
+            lines.append("```")
+            lines.append("")
+
+    # ========== 3. Mapper/XML 变更 ==========
+    mapper_changed = changed.get("mapper", set()) | changed.get("mapper_xml", set())
+    if mapper_changed:
+        lines.append("---")
+        lines.append("## 三、Mapper/XML 变更")
+        lines.append("")
+        lines.append("以下 Mapper 或 XML 文件发生变更，可能影响数据层行为：")
+        lines.append("")
+        for path in sorted(mapper_changed):
+            rel_path = os.path.relpath(path, PROJECT_DIR)
+            lines.append(f"- `{rel_path}`")
+        lines.append("")
+
+    # ========== 4. 其他变更 ==========
+    other_changed = changed.get("other", set())
+    if other_changed:
+        lines.append("---")
+        lines.append("## 四、其他文件变更")
+        lines.append("")
+        for path in sorted(other_changed):
+            rel_path = os.path.relpath(path, PROJECT_DIR)
+            lines.append(f"- `{rel_path}`")
+        lines.append("")
+
+    # 写入报告
+    _write_report(lines)
+
+
+def _write_report(lines: List[str]):
+    """写入影响链路报告到文件"""
     try:
         with open(IMPACT_REPORT_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
