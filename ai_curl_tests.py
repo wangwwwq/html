@@ -211,11 +211,15 @@ PARAM_SPLIT_RE = re.compile(r',(?![^()]*\))')
 def parse_params(param_text: str) -> Dict[str, object]:
     """
     返回:
-      body: Optional[str]  # RequestBody 类型名
+      body: Optional[str]  # RequestBody 类型名（泛型参数，如 List<UserDTO> 返回 UserDTO）
+      body_raw_type: Optional[str]  # 原始类型名（如 List<UserDTO>）
+      is_array_body: bool  # 是否为数组请求体
       query: List[str]
       path: List[str]
     """
-    result = {"body": None, "query": [], "path": []}
+    result = {"body": None, "body_raw_type": None, "is_array_body": False, "query": [], "path": []}
+    collection_types = {"List", "ArrayList", "Collection", "Set", "HashSet", "LinkedList"}
+
     for p in PARAM_SPLIT_RE.split(param_text):
         p = p.strip()
         if not p:
@@ -226,7 +230,21 @@ def parse_params(param_text: str) -> Dict[str, object]:
         name = tokens[-1]
         if "@RequestBody" in p:
             if len(tokens) >= 2:
-                result["body"] = tokens[-2].replace("[]", "").split("<")[0]
+                raw_type = tokens[-2].replace("[]", "")
+                result["body_raw_type"] = raw_type
+
+                # 检查是否为集合类型（List<XXXDTO> 等）
+                generic_match = re.match(r'(\w+)<\s*(\w+)\s*>', raw_type)
+                if generic_match:
+                    container_type = generic_match.group(1)
+                    inner_type = generic_match.group(2)
+                    if container_type in collection_types:
+                        result["body"] = inner_type  # 泛型参数才是真正的 DTO
+                        result["is_array_body"] = True
+                    else:
+                        result["body"] = raw_type
+                else:
+                    result["body"] = raw_type.split("<")[0]
         elif "@PathVariable" in p:
             result["path"].append(name)
         else:
@@ -582,9 +600,10 @@ def _ast_extract_mapping_from_annotation(ann) -> Optional[Tuple[str, str]]:
 def _ast_extract_method_params(method) -> Dict[str, object]:
     """
     尽量保持和 parse_params 输出一致：
-      { "body": Optional[str], "query": [str], "path": [str] }
+      { "body": Optional[str], "body_raw_type": Optional[str], "is_array_body": bool, "query": [str], "path": [str] }
     """
-    result: Dict[str, object] = {"body": None, "query": [], "path": []}
+    result: Dict[str, object] = {"body": None, "body_raw_type": None, "is_array_body": False, "query": [], "path": []}
+    collection_types = {"List", "ArrayList", "Collection", "Set", "HashSet", "LinkedList"}
 
     for p in getattr(method, "parameters", []):
         name = getattr(p, "name", None)
@@ -592,13 +611,35 @@ def _ast_extract_method_params(method) -> Dict[str, object]:
             continue
 
         type_name = ""
+        type_args = []
         if getattr(p, "type", None) is not None:
             type_name = getattr(p.type, "name", "") or ""
+            # 获取泛型参数
+            args = getattr(p.type, "arguments", None)
+            if args:
+                for arg in args:
+                    arg_type = getattr(arg, "type", None)
+                    if arg_type:
+                        arg_name = getattr(arg_type, "name", "")
+                        if arg_name:
+                            type_args.append(arg_name)
 
         ann_names = {_ast_get_annotation_name(a) for a in getattr(p, "annotations", [])}
 
         if "RequestBody" in ann_names:
-            result["body"] = type_name or None
+            # 构建原始类型名
+            if type_args:
+                raw_type = f"{type_name}<{', '.join(type_args)}>"
+            else:
+                raw_type = type_name
+            result["body_raw_type"] = raw_type
+
+            # 检查是否为集合类型
+            if type_name in collection_types and type_args:
+                result["body"] = type_args[0]  # 泛型参数才是真正的 DTO
+                result["is_array_body"] = True
+            else:
+                result["body"] = type_name or None
         elif "PathVariable" in ann_names:
             result["path"].append(name)
         else:
@@ -1209,6 +1250,8 @@ def _find_controller_mappings_for_service_method(
                 # 提取方法上的参数信息（包括 @RequestBody DTO 名）
                 params = _ast_extract_method_params(method)
                 body_type = params.get("body")
+                body_raw_type = params.get("body_raw_type")
+                is_array_body = params.get("is_array_body", False)
 
                 for http_method, path in method_mappings:
                     if http_method == "REQUEST":
@@ -1224,6 +1267,8 @@ def _find_controller_mappings_for_service_method(
                             "path": full_path or "/",
                             # 链路解析时也能拿到 RequestBody DTO，例如 CabinetInformationVO
                             "body": body_type or None,
+                            "body_raw_type": body_raw_type,
+                            "is_array_body": is_array_body,
                         }
                     )
     return results
@@ -1626,6 +1671,8 @@ def _find_changed_methods_in_controller(
                     "http_method": http_method,
                     "path": full_path,
                     "body": params.get("body"),
+                    "body_raw_type": params.get("body_raw_type"),
+                    "is_array_body": params.get("is_array_body", False),
                     "query": params.get("query", []),
                     "path_vars": params.get("path", []),
                     "code": method_code,
@@ -1640,9 +1687,13 @@ def _generate_test_request_example(
     path: str,
     body_type: Optional[str],
     java_index,
+    is_array_body: bool = False,
+    body_raw_type: Optional[str] = None,
 ) -> str:
     """
     生成可直接用于自动测试的请求示例
+    is_array_body: 是否为数组请求体（List<XXXDTO> 等）
+    body_raw_type: 原始类型名（如 List<UserDTO>）
     """
     lines = []
     lines.append(f"**测试请求示例：**")
@@ -1659,6 +1710,9 @@ def _generate_test_request_example(
         dto_struct = _parse_dto_structure(body_type, java_index)
         if dto_struct and dto_struct.get("fields"):
             json_body = _generate_json_from_dto(dto_struct)
+            # 如果是数组请求体，包装为 JSON Array
+            if is_array_body:
+                json_body = f"[{json_body}]"
             curl_parts.append(f"  -d '{json_body}'")
 
     lines.append(" \\\n".join(curl_parts))
@@ -1801,7 +1855,11 @@ def generate_impact_report(
 
             # Body 结构
             if m.get("body"):
-                lines.append(f"**请求体**: `{m['body']}`")
+                body_display = m.get("body_raw_type") or m["body"]
+                if m.get("is_array_body"):
+                    lines.append(f"**请求体**: `{body_display}` （数组请求体）")
+                else:
+                    lines.append(f"**请求体**: `{body_display}`")
                 dto_struct = _parse_dto_structure(m["body"], java_index)
                 if dto_struct and dto_struct.get("fields"):
                     lines.append(_format_dto_structure_markdown(dto_struct))
@@ -1821,7 +1879,9 @@ def generate_impact_report(
             # 测试请求示例
             lines.append("")
             lines.append(_generate_test_request_example(
-                m["http_method"], m["path"], m.get("body"), java_index
+                m["http_method"], m["path"], m.get("body"), java_index,
+                is_array_body=m.get("is_array_body", False),
+                body_raw_type=m.get("body_raw_type")
             ))
             lines.append("")
 
@@ -1869,8 +1929,14 @@ def generate_impact_report(
                         continue
 
                     body_info = m.get("body")
+                    body_raw_type = m.get("body_raw_type")
+                    is_array_body = m.get("is_array_body", False)
                     if body_info:
-                        lines.append(f"- `{m['http_method']} {m['path']}` Body: `{body_info}`")
+                        body_display = body_raw_type or body_info
+                        if is_array_body:
+                            lines.append(f"- `{m['http_method']} {m['path']}` Body: `{body_display}` （数组请求体）")
+                        else:
+                            lines.append(f"- `{m['http_method']} {m['path']}` Body: `{body_display}`")
                         dto_struct = _parse_dto_structure(body_info, java_index)
                         if dto_struct and dto_struct.get("fields"):
                             lines.append(_format_dto_structure_markdown(dto_struct))
@@ -1879,7 +1945,9 @@ def generate_impact_report(
 
                     # 测试请求示例
                     lines.append(_generate_test_request_example(
-                        m["http_method"], m["path"], body_info, java_index
+                        m["http_method"], m["path"], body_info, java_index,
+                        is_array_body=is_array_body,
+                        body_raw_type=body_raw_type
                     ))
                 lines.append("")
 
