@@ -126,7 +126,7 @@
 
     #whPanel {
       position: fixed;
-      right: 16px;
+      left: 16px;
       bottom: 16px;
       z-index: 10;
       display: none;
@@ -2779,12 +2779,8 @@ function getSiloSelectedColor(obj) {
     const gap = 12;
     const detailShown = detailPanel.style.display !== 'none';
     const whShown = whPanel.style.display !== 'none';
-    detailPanel.style.bottom = '16px';
-    whPanel.style.bottom = '16px';
-    if (detailShown && whShown) {
-      const h = detailPanel.offsetHeight || detailPanel.getBoundingClientRect().height || 0;
-      whPanel.style.bottom = (16 + h + gap) + 'px';
-    }
+    detailPanel.style.bottom = '16px'; // detailPanel 保持原位
+    // whPanel 的 bottom 由 CSS 控制，不再动态计算
   }
 
   function updateActionBar() {
